@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Fidelity reports in the browser: dividends, DRIPs, investments and watchlists from Portfolio_Positions CSV exports, the same reports as the scio-examples Scala jobs. Nothing leaves the browser." />
+  <title>Reports</title>
+  <link rel="icon" type="image/x-icon" href="./favicon.ico">
+
+  <!-- Inter font  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="./index.css" type="text/css" rel="stylesheet" />
+
+  <!-- Synchronous theme init (prevents flash, same strategy as Stocks) -->
+  <script>
+    (function () {
+      var dark = false;
+      try { dark = localStorage.getItem('reports-theme') === 'dark'; } catch (e) {}
+      document.documentElement.classList.toggle('dark', dark);
+      document.documentElement.style.backgroundColor = dark ? '#020617' : '#f8fafc';
+    })();
+  </script>
+
+</head>
+<body class="min-h-screen font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-300">
+  <div class="min-h-screen flex flex-col animate-fade-in">
+
+    <main class="flex-1 w-full max-w-full p-4 sm:p-8 pb-0 sm:pb-0 lg:pt-0 space-y-6">
+
+      <div id="top-panels" class="max-lg:contents lg:sticky lg:top-0 lg:z-40 lg:space-y-6 lg:pt-8 lg:bg-slate-50 lg:dark:bg-slate-900">
+        <!-- Top panel: brand, the Input / Output tabs, file count and theme -->
+        <nav id="selected-tabs-panel" class="bg-white dark:bg-slate-800/80 max-lg:dark:bg-slate-800 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs backdrop-blur-sm flex flex-wrap items-center gap-x-3 gap-y-2 lg:grid lg:grid-cols-[minmax(11rem,1fr)_minmax(0,auto)_minmax(min-content,1fr)] max-lg:sticky max-lg:top-0 max-lg:z-40 max-lg:mb-6" aria-label="Input and output">
+          <div class="order-1 lg:min-w-0 flex flex-1 flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5 min-w-0">
+            <div class="flex items-start gap-3 min-w-0 sm:shrink-0">
+              <svg class="w-6 h-6 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6m4 6V7m4 10v-3M5 21h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2z" />
+              </svg>
+              <h1 class="min-w-0 text-xl font-bold tracking-tight text-slate-900 dark:text-white leading-tight">Reports</h1>
+            </div>
+            <span id="app-subtitle" class="hidden xl:block xl:flex-1 sm:min-w-0 truncate text-sm text-slate-500 dark:text-slate-400"></span>
+          </div>
+          <div id="main-tabs" role="tablist" aria-label="Input or output" class="flex flex-nowrap items-center [justify-content:safe_center] [&>*]:shrink-0 [&>*]:whitespace-nowrap gap-1.5 overflow-x-auto py-0.5 order-3 lg:order-2 basis-full lg:basis-auto max-w-full themed-scroll"></div>
+          <div class="order-2 lg:order-3 flex items-center gap-3 shrink-0 ml-auto lg:ml-0 lg:justify-self-end">
+            <span id="file-count" class="whitespace-nowrap bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-sm font-semibold px-3.5 py-1.5 rounded-full border border-blue-200 dark:border-blue-500/30">Loading…</span>
+            <button id="theme-toggle" class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition text-base leading-none" title="Toggle Theme">🌙</button>
+          </div>
+        </nav>
+
+        <!-- Toolbar: search, grouping, columns, filters and the actions -->
+        <div class="max-lg:mb-6 relative z-50 flex flex-wrap items-center gap-x-2.5 gap-y-2.5 bg-white dark:bg-slate-800/80 px-3 py-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs backdrop-blur-sm">
+          <div class="relative flex items-center w-full lg:w-auto lg:flex-1 lg:min-w-[8rem] lg:max-w-sm">
+            <input type="text" id="search-input" placeholder="Search rows..." title="Show the rows that contain every word in any column"
+              class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg pl-4 pr-8 py-2 w-full focus:outline-hidden focus:border-blue-500 text-sm placeholder-slate-400 dark:placeholder-slate-500 transition" />
+            <button type="button" id="search-clear-btn" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-sm leading-none focus:outline-hidden" title="Clear search" aria-label="Clear search">✕</button>
+          </div>
+          <button type="button" id="group-btn" class="dd-trigger" title="Output per input file (1, 2, ... then the 4 reports) or per report (the 4 reports, then 1, 2, ...)"><span class="dd-label">Output per:</span><span class="dd-value" id="group-summary">file</span></button>
+          <div class="dd-root">
+            <button type="button" id="columns-btn" class="dd-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="columns-panel"><span class="dd-label">Columns:</span><span class="dd-value" id="columns-summary">...</span><span class="dd-badge" id="columns-badge" hidden></span><svg class="dd-chev" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 8 5 5 5-5"/></svg></button>
+            <div id="columns-panel" class="dd-panel" hidden></div>
+          </div>
+          <button type="button" id="filters-btn" class="dd-trigger" aria-pressed="true" title="Show or hide the row of filter inputs under the column headers"><span class="dd-label">Filters:</span><span class="dd-value" id="filters-summary">on</span><span class="dd-badge" id="filters-badge" hidden></span></button>
+          <button type="button" id="clear-filters-btn" class="dd-act" hidden title="Clear every column filter, the search and the sort of the shown table">Clear filters</button>
+          <label id="run-date-wrap" hidden class="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300" title="DRIPs show the ex-dividend and payment dates only when they are after this day (the day the Scala job runs)">
+            <span class="whitespace-nowrap">Dates after</span>
+            <input type="date" id="run-date" class="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-sm focus:outline-hidden focus:border-blue-500" />
+          </label>
+          <span id="status" class="empty:hidden text-xs text-slate-500 dark:text-slate-400" aria-live="polite"></span>
+
+          <div class="flex flex-wrap items-center gap-1.5 w-full lg:w-auto lg:ml-auto justify-end shrink-0">
+            <input type="file" id="file-input" accept=".csv,text/csv" multiple hidden />
+            <button id="load-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-sm font-medium transition active:scale-95" title="Load Fidelity Portfolio_Positions CSV files (or drop them on the page); they replace the repo data until you reload the page">Load files</button>
+            <button id="repo-data-btn" hidden class="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-lg text-sm font-medium transition active:scale-95 hover:bg-slate-200 dark:hover:bg-slate-700" title="Go back to the files of the repo data/ folder">Repo data</button>
+            <button id="copy-btn" disabled class="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-lg text-sm font-medium transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 dark:hover:bg-slate-700 disabled:hover:bg-slate-100 dark:disabled:hover:bg-slate-800">Copy Tickers</button>
+            <button id="export-csv-btn" disabled class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-sm font-medium transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600">Export .csv</button>
+            <button id="download-all-btn" disabled class="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-lg text-sm font-medium transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 dark:hover:bg-slate-700 disabled:hover:bg-slate-100 dark:disabled:hover:bg-slate-800" title="Every report in one zip with the folders of scio-examples target/: dividends/1.csv..., DRIPs/1.csv..., investments/1.csv..., watchlist/All.csv and .txt...">Download all</button>
+            <button id="export-txt-btn" disabled class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-sm font-medium transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600">Export .txt</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub tabs: input files, or the two levels of the output. From xl the second level sits to the right of
+           the first one in the same row; on smaller screens the two rows are stacked and centered -->
+      <div id="sub-tabs" class="bg-white dark:bg-slate-800/80 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs backdrop-blur-sm flex flex-col items-center gap-2 xl:flex-row xl:justify-between xl:gap-6">
+        <div id="sub-tabs-1" role="tablist" class="flex flex-nowrap items-center [justify-content:safe_center] xl:justify-start gap-1.5 overflow-x-auto py-0.5 max-w-full min-w-0 themed-scroll"></div>
+        <div id="sub-tabs-2" role="tablist" class="flex flex-nowrap items-center [justify-content:safe_center] xl:justify-end gap-1.5 overflow-x-auto py-0.5 max-w-full min-w-0 shrink-0 xl:shrink themed-scroll"></div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs backdrop-blur-sm overflow-hidden relative">
+        <div id="busy-overlay" class="busy-overlay" role="status" aria-live="polite"><div class="busy-spinner"></div><span id="busy-label">Loading the repo data…</span></div>
+        <div id="table-scroll" class="overflow-x-auto overflow-y-auto themed-scroll">
+          <table class="w-full text-left whitespace-nowrap">
+            <thead id="table-head" class="bg-slate-50 dark:bg-slate-900/95 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 sticky top-0 z-20 backdrop-blur-sm"></thead>
+            <tbody id="table-body" class="divide-y divide-slate-100 dark:divide-slate-700/50 text-sm">
+              <tr><td class="py-12 text-center text-slate-400 dark:text-slate-500">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <footer class="px-4 sm:px-8 h-4 sm:h-8 flex items-center justify-center text-center text-xs leading-none text-slate-500 dark:text-slate-400">
+      <a href="https://github.com/daggerok/reports" target="_blank" rel="noopener noreferrer" class="transition-colors hover:text-slate-800 dark:hover:text-slate-100">daggerok &copy; <span id="footer-year">2026</span></a>
+    </footer>
+    <script>document.getElementById('footer-year').textContent = String(new Date().getFullYear());</script>
+  </div>
+
+  <div id="drop-overlay" hidden class="fixed inset-0 z-[2000] flex items-center justify-center bg-blue-600/20 backdrop-blur-sm text-2xl font-semibold text-blue-700 dark:text-blue-300 pointer-events-none">Drop CSV files to load them</div>
+
+  <script src="./main.tsx" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Blocks a commit while a file in data/ still has a full account number (fix: bun run sanitize).
+exec bun scripts/sanitize-data.ts --check

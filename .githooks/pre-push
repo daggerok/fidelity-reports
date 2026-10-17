@@ -1,0 +1,3 @@
+#!/bin/sh
+# Blocks a push while the working tree or any commit has a full account number in data/.
+bun scripts/sanitize-data.ts --check && exec bun scripts/sanitize-data.ts --check-history

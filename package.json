@@ -1,0 +1,63 @@
+{
+  "name": "reports",
+  "version": "1.0.0",
+  "description": "Fidelity reports: dividends, DRIPs, investments and watchlists built in the browser from Portfolio_Positions CSV exports",
+  "source": "src/index.html",
+  "scripts": {
+    "clean": "rimraf -rf dist",
+    "data": "bun scripts/data-index.ts",
+    "ncp": "ncp data dist/data",
+    "build-github-pages": "npm run build -- --public-url=/reports/",
+    "preserve": "npm run check-data && npm run data && npm run ncp",
+    "serve": "parcel --no-cache --no-source-maps --dist-dir ./dist",
+    "prebuild": "npm run clean && npm run check-data && npm run data",
+    "build": "parcel build --no-cache --no-source-maps --dist-dir ./dist",
+    "postbuild": "npm run ncp && npm run check-dist",
+    "start": "pm2 start 'npm run serve' --name app",
+    "restart": "pm2 restart app",
+    "ps": "pm2 ps",
+    "logs": "pm2 logs",
+    "stop": "pm2 kill",
+    "test": "bun test",
+    "compare": "bun scripts/compare-scio.ts ../scio-examples",
+    "sanitize": "bun scripts/sanitize-data.ts",
+    "check-data": "bun scripts/sanitize-data.ts --check",
+    "check-history": "bun scripts/sanitize-data.ts --check-history",
+    "prepare": "git config core.hooksPath .githooks || true",
+    "check-dist": "bun scripts/sanitize-data.ts --check-dist"
+  },
+  "keywords": [
+    "tailwind",
+    "parcel",
+    "rimraf",
+    "html",
+    "pm2",
+    "css",
+    "ncp",
+    "bun",
+    "fidelity",
+    "csv"
+  ],
+  "author": "Maksim Kostromin / GitHub: daggerok",
+  "license": "MIT",
+  "dependencies": {
+    "decimal.js": "10.6.0",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "@parcel/transformer-sass": "2.16.4",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/bun": "1.4.2",
+    "@types/node": "26.6.4",
+    "ncp": "2.0.0",
+    "parcel": "2.16.4",
+    "pm2": "7.0.4",
+    "rimraf": "6.1.3",
+    "tailwindcss": "4.3.3"
+  },
+  "postcss": {
+    "plugins": {
+      "@tailwindcss/postcss": {}
+    }
+  }
+}
