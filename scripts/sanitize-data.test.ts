@@ -1,6 +1,7 @@
 /// <reference types="bun" />
 import { describe, it, expect } from 'bun:test';
 import { accountLikeLines, isMasked, maskValue, sanitizeText } from '../src/sanitize';
+import { hooksProblem } from './sanitize-data';
 import { readFidelityAccounts, buildReport, reportText, REPORT_KINDS } from '../src/reports';
 
 // fake account numbers, built at run time so no literal in the repo looks like one (the hooks scan for them)
@@ -16,6 +17,10 @@ const SAMPLE = [
 ].join('\r\n');
 
 describe('sanitize', () => {
+  it('the git hooks are on in this clone (pre-commit masks and checks every commit)', () => {
+    expect(hooksProblem()).toBe('');
+  });
+
   it('masks every character but the last 4 (same length), keeps spaces and quotes', () => {
     expect(maskValue(` ${FAKE_A}`)).toBe(' *****5678');
     expect(maskValue(`"${FAKE_B}"`)).toBe('"*****4321"');

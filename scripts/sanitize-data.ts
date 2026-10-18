@@ -12,6 +12,10 @@
 //   bun scripts/sanitize-data.ts --pre-commit    what .githooks/pre-commit runs, on the STAGED content (the index):
 //                                                masks staged data/*.csv in the index and the working tree, then
 //                                                refuses the commit if any staged file still holds an account-like number
+//   bun scripts/sanitize-data.ts --check-hooks   exit 1 unless the git hooks are on (core.hooksPath = .githooks, both
+//                                                hooks executable); build, serve and bun test run it, so work stops
+//                                                in a clone where commits would not be checked (CI is skipped: it
+//                                                has no hooks, it runs --check before the build instead)
 //   bun scripts/sanitize-data.ts --check-dist    the same scan over the built site (dist/), run after every build
 //   bun scripts/sanitize-data.ts --check-history exit 1 when any commit ever had one (run before a public push)
 //
@@ -100,8 +104,27 @@ function preCommit(): number {
   return 0;
 }
 
+/** The hooks this repo relies on; a clone without them would commit unchecked files. */
+export function hooksProblem(): string {
+  if (process.env.CI) return '';
+  let path = '';
+  try { path = gitRun(['config', '--get', 'core.hooksPath']).trim(); } catch { path = ''; }
+  if (path !== '.githooks') return `git hooks are off (core.hooksPath is "${path}"): run bun install (or git config core.hooksPath .githooks)`;
+  for (const hook of ['pre-commit', 'pre-push']) {
+    let mode = 0;
+    try { mode = statSync(join(ROOT, '.githooks', hook)).mode; } catch { return `.githooks/${hook} is missing`; }
+    if (!(mode & 0o111)) return `.githooks/${hook} is not executable: chmod +x .githooks/${hook}`;
+  }
+  return '';
+}
+
 function main(argv: string[]): number {
   if (argv.includes('--pre-commit')) return preCommit();
+  if (argv.includes('--check-hooks')) {
+    const problem = hooksProblem();
+    console.log(problem ? `HOOKS: ${problem}` : process.env.CI ? 'hooks: skipped on CI (check-data runs instead)' : 'hooks: pre-commit and pre-push are on');
+    return problem ? 1 : 0;
+  }
   if (argv.includes('--check-dist')) {
     const dist = join(ROOT, 'dist');
     let bad = 0;

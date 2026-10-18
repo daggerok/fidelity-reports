@@ -8,9 +8,9 @@
     "data": "bun scripts/data-index.ts",
     "ncp": "ncp data dist/data",
     "build-github-pages": "npm run build -- --public-url=/fidelity-reports/",
-    "preserve": "npm run check-data && npm run data && npm run ncp",
+    "preserve": "npm run check-hooks && npm run check-data && npm run data && npm run ncp",
     "serve": "parcel --no-cache --no-source-maps --dist-dir ./dist",
-    "prebuild": "npm run clean && npm run check-data && npm run data",
+    "prebuild": "npm run clean && npm run check-hooks && npm run check-data && npm run data",
     "build": "parcel build --no-cache --no-source-maps --dist-dir ./dist",
     "postbuild": "npm run ncp && npm run check-dist",
     "start": "pm2 start 'npm run serve' --name app",
@@ -24,7 +24,8 @@
     "check-data": "bun scripts/sanitize-data.ts --check",
     "check-history": "bun scripts/sanitize-data.ts --check-history",
     "prepare": "git config core.hooksPath .githooks || true",
-    "check-dist": "bun scripts/sanitize-data.ts --check-dist"
+    "check-dist": "bun scripts/sanitize-data.ts --check-dist",
+    "check-hooks": "bun scripts/sanitize-data.ts --check-hooks"
   },
   "keywords": [
     "tailwind",
