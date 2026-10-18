@@ -9,6 +9,9 @@
 //   bun scripts/sanitize-data.ts a.csv b.csv     mask these files in place
 //   bun scripts/sanitize-data.ts --check         exit 1 when a file in data/ still has a full account number, or any
 //                                                file of the repo (tracked or new) holds something shaped like one
+//   bun scripts/sanitize-data.ts --pre-commit    what .githooks/pre-commit runs, on the STAGED content (the index):
+//                                                masks staged data/*.csv in the index and the working tree, then
+//                                                refuses the commit if any staged file still holds an account-like number
 //   bun scripts/sanitize-data.ts --check-dist    the same scan over the built site (dist/), run after every build
 //   bun scripts/sanitize-data.ts --check-history exit 1 when any commit ever had one (run before a public push)
 //
@@ -57,7 +60,48 @@ function git(args: string[]): string {
   return run.stdout.toString();
 }
 
+function gitRun(args: string[], input?: string): string {
+  const run = Bun.spawnSync(['git', ...args], { cwd: ROOT, stdin: input === undefined ? 'ignore' : new TextEncoder().encode(input), stdout: 'pipe', stderr: 'pipe' });
+  if (run.exitCode !== 0) throw new Error(`git ${args[0]}: ${run.stderr.toString().trim()}`);
+  return run.stdout.toString();
+}
+
+/**
+ * The commit gets only masked data: staged data/*.csv are masked in the index (and in the working tree, so both
+ * agree), then every staged file is scanned. A commit with an account number is never created.
+ */
+function preCommit(): number {
+  const staged = gitRun(['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']).split('\0').filter(Boolean);
+  let masked = 0;
+  for (const path of staged.filter(p => /^data\/[^/]+\.csv$/i.test(p))) {
+    const { text, findings } = sanitizeText(gitRun(['show', `:${path}`]));
+    if (!findings.length) continue;
+    const mode = gitRun(['ls-files', '-s', '--', path]).split(' ')[0] || '100644';
+    const blob = gitRun(['hash-object', '-w', '--stdin', '--path', path], text).trim();
+    gitRun(['update-index', '--cacheinfo', `${mode},${blob},${path}`]);
+    try {
+      const work = readFileSync(join(ROOT, path), 'utf8');
+      const fixed = sanitizeText(work);
+      if (fixed.findings.length) writeFileSync(join(ROOT, path), fixed.text);
+    } catch { /* deleted in the working tree: the index is what counts */ }
+    masked += 1;
+    console.log(`masked ${path}: ${findings.length} rows (staged and working copy)`);
+  }
+  let bad = 0;
+  for (const path of staged.filter(p => !SKIP.test(p))) {
+    const lines = accountLikeLines(gitRun(['show', `:${path}`]));
+    if (lines.length) { bad += 1; report(`staged ${path}`, lines); }
+  }
+  if (bad) {
+    console.log(`commit refused: ${bad} staged files hold account-like numbers (mask them, or unstage them with git restore --staged)`);
+    return 1;
+  }
+  console.log(masked ? `${masked} data files masked before the commit` : 'staged files: no account numbers');
+  return 0;
+}
+
 function main(argv: string[]): number {
+  if (argv.includes('--pre-commit')) return preCommit();
   if (argv.includes('--check-dist')) {
     const dist = join(ROOT, 'dist');
     let bad = 0;

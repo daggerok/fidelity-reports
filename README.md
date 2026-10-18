@@ -20,15 +20,15 @@ Fidelity reports in the browser: dividends, DRIPs, investments and watchlists fr
 
 ## Account numbers (before anything goes public)
 
-A full account number is never stored in the repo, never shown on the page and never in the built site:
+A full account number never gets into a commit, the repo or the public site:
 
 - `data/` keeps only the last 4 characters: `AB1234567` -> `*****4567` (same length). `bun run sanitize` masks `data/*.csv` in place (or `bun scripts/sanitize-data.ts a.csv b.csv`); only the Account number column changes, the reports stay the same, a second run changes nothing
-- The page masks every file it loads the same way (src/sanitize.ts) before showing or using it
+- Files you load yourself (Load files, drop) stay in your browser and are shown as they are, with your real account numbers: nothing is uploaded, nothing is committed
 - `bun run check-data`: exit 1 while a file in `data/` has a full number, or ANY file of the repo (tracked or new) holds something shaped like one (a letter and 8 digits, or 9 digits)
 - `bun run build` runs check-data first and `check-dist` last (the same scan over `dist/`): the build fails instead of producing a site with a number
 - `bun run check-history`: exit 1 while any commit holds one
-- Git hooks in `.githooks/` (set by `bun install` through `prepare`): `pre-commit` runs check-data, `pre-push` runs check-data and check-history; CI runs check-data before the tests
-- New exports: copy them into `data/`, run `bun run sanitize`, commit
+- Git hooks in `.githooks/` (set by `bun install` through `prepare`): `pre-commit` works on what is being committed (the index), masks staged `data/*.csv` automatically (index and working copy) and refuses the commit if any staged file still holds an account-like number, so a commit with a number is never created; `pre-push` re-checks the working tree and the whole history as a last guard; CI runs check-data before the tests and the build
+- New exports: copy them into `data/` and commit (the pre-commit hook masks them; `bun run sanitize` does it by hand)
 
 ## Reports vs scio-examples
 

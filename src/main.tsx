@@ -27,7 +27,6 @@ import {
 } from './filter-engine';
 import { createDropdown, type Dropdown } from './dropdown';
 import { escapeHtml } from './html';
-import { sanitizeText } from './sanitize';
 import { strToU8, zipSync } from 'fflate';
 
 // ---- 1. DOM, state, storage -----------------------------------------------------------------------
@@ -130,16 +129,12 @@ function setBusy(on: boolean, label = ''): void {
 
 // ---- 2. Input files and the report worker -----------------------------------------------------------
 
-/** Every file is masked first (AB1234567 -> *****4567), so a full account number is never kept or shown. */
-function toInput(name: string, raw: string): InputFile {
-  let text = raw;
-  try {
-    text = sanitizeText(raw).text;
-  } catch (e) {
-    // two accounts of one file end with the same 4 characters: mask the column completely
-    text = raw.split(/(\r\n|\n|\r)/).map((line, i) => (i % 2 === 0 && /^\s*[A-Za-z0-9]{5,}\s*,/.test(line) && !/^\s*account number/i.test(line) ? line.replace(/^(\s*)[A-Za-z0-9]+/, (_, s) => `${s}*****`) : line)).join('');
-    setStatus(`${name}: ${e instanceof Error ? e.message : String(e)}; the account numbers are hidden completely`);
-  }
+/**
+ * Files are used as they are. The repo data/ is already masked (scripts/sanitize-data.ts, checked by the git hooks,
+ * CI and the build), so the public site never has a full account number; files you load yourself stay in your
+ * browser (nothing is uploaded), so they show your real account numbers.
+ */
+function toInput(name: string, text: string): InputFile {
   return { name, text, table: readTable(text), accounts: readFidelityAccounts(name, text) };
 }
 

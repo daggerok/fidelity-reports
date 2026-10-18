@@ -1,3 +1,4 @@
 #!/bin/sh
-# Blocks a commit while a file in data/ still has a full account number (fix: bun run sanitize).
-exec bun scripts/sanitize-data.ts --check
+# Runs on what is about to be committed (the index): full account numbers in staged data/*.csv are masked
+# automatically (index and working copy), and the commit is refused if any staged file still holds one.
+exec bun scripts/sanitize-data.ts --pre-commit
