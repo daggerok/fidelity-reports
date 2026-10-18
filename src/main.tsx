@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 // =========================================================================
-// Reports: Fidelity Portfolio_Positions CSV exports -> dividends, DRIPs, investments and watchlists,
+// Fidelity Reports: Fidelity Portfolio_Positions CSV exports -> dividends, DRIPs, investments and watchlists,
 // the reports of scio-examples (sbt runMain io.github.daggerok.Main), built in the browser.
 //
 // - Input tab: every input file as a table. At start the files of the repo data/ folder are loaded
@@ -57,7 +57,7 @@ type GroupBy = 'file' | 'report';
 type TableSettings = { filters: Record<string, string>; types: Record<string, ColType>; hidden: string[] };
 type SortState = { col: string; dir: 'asc' | 'desc' } | null;
 
-const PREFIX = 'reports';
+const PREFIX = 'fidelity-reports';
 const THEME_KEY = `${PREFIX}-theme`;
 const VIEW_KEY = `${PREFIX}-view`;
 const SHOW_FILTERS_KEY = `${PREFIX}-show-filters`;
@@ -511,12 +511,12 @@ function downloadAll(): void {
   const url = URL.createObjectURL(new Blob([zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer], { type: 'application/zip' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `reports-${state.runDate}.zip`;
+  a.download = `fidelity-reports-${state.runDate}.zip`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  setStatus(`${Object.keys(entries).length} files in reports-${state.runDate}.zip`);
+  setStatus(`${Object.keys(entries).length} files in fidelity-reports-${state.runDate}.zip`);
 }
 
 // ---- 7. Events -------------------------------------------------------------------------------------

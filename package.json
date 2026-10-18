@@ -1,5 +1,5 @@
 {
-  "name": "reports",
+  "name": "fidelity-reports",
   "version": "1.0.0",
   "description": "Fidelity reports: dividends, DRIPs, investments and watchlists built in the browser from Portfolio_Positions CSV exports",
   "source": "src/index.html",
@@ -7,7 +7,7 @@
     "clean": "rimraf -rf dist",
     "data": "bun scripts/data-index.ts",
     "ncp": "ncp data dist/data",
-    "build-github-pages": "npm run build -- --public-url=/reports/",
+    "build-github-pages": "npm run build -- --public-url=/fidelity-reports/",
     "preserve": "npm run check-data && npm run data && npm run ncp",
     "serve": "parcel --no-cache --no-source-maps --dist-dir ./dist",
     "prebuild": "npm run clean && npm run check-data && npm run data",

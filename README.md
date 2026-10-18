@@ -1,4 +1,4 @@
-# Reports
+# Fidelity Reports
 
 Fidelity reports in the browser: dividends, DRIPs, investments and watchlists from `Portfolio_Positions` CSV exports. The same reports as [scio-examples](https://github.com/daggerok/scio-examples) (`sbt runMain io.github.daggerok.Main`), with no sbt run and no copying of files: the page builds them right after the input changes
 
