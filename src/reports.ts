@@ -205,6 +205,12 @@ export type ReportTable = {
   extra?: number;
 };
 
+/** Fractional shares, 3 decimals, rounded like scio (current shares HALF_UP, shares to buy CEILING; 0 -> 0.000). */
+function shares(value: Dec, lastPrice: Dec, rounding: Decimal.Rounding): string {
+  if (!value.gt(0) || !lastPrice.gt(0)) return '0.000';
+  return value.div(lastPrice).toDecimalPlaces(3, rounding).toFixed(3);
+}
+
 /** Market cap as the reports print it (Mega cap ($5.56T) -> 5.56T), blank when the row has no such column. */
 function marketCapOf(parts: string[], idx: FidelitySchema): string {
   return idx.marketCap >= 0 && parts.length > idx.marketCap ? formatMarketCap(parts[idx.marketCap].trim()) : '';
@@ -224,6 +230,14 @@ const TICKER_ALIASES: Record<string, string[]> = {
   AMP: ['AMP', 'NYSE:AMP'], 'NYSE:AMP': ['AMP', 'NYSE:AMP'],
 };
 
+/** Commons.watchlistBlacklist: removed from every watchlist; a rule ending with * is a prefix (SPAXX, SPAXX**). */
+export const WATCHLIST_BLACKLIST = ['SPAXX*', 'SGOV'];
+
+export function isWatchlistBlacklisted(ticker: string): boolean {
+  const t = ticker.trim();
+  return WATCHLIST_BLACKLIST.some(rule => (rule.endsWith('*') ? t.startsWith(rule.slice(0, -1)) : t === rule));
+}
+
 function securityOf(sector: string): Security {
   const s = sector == null || sector.trim() === '' ? '--' : sector.trim();
   return s === '--' ? 'ETF' : 'Stock';
@@ -240,7 +254,7 @@ export function watchlistReport(accounts: Account[], securities: Security[]): Re
       const sector = idx.sector >= 0 && parts.length > idx.sector ? parts[idx.sector] : '--';
       if (!securities.includes(securityOf(sector))) continue;
       const ticker = parts[idx.symbol].trim();
-      if (!/^[A-Z0-9.:]+$/.test(ticker)) continue;
+      if (!/^[A-Z0-9.:]+$/.test(ticker) || isWatchlistBlacklisted(ticker)) continue;
       const capRaw = idx.marketCap >= 0 && parts.length > idx.marketCap ? parts[idx.marketCap] : '';
       const cap = parseMarketCap(capRaw);
       for (const t of TICKER_ALIASES[ticker] ?? [ticker]) {
@@ -263,7 +277,7 @@ const MIN_FIDELITY_ORDER = new D('1.00');
 
 export function investmentsReport(account: Account): ReportTable {
   const { schema: idx, rows } = parsedRows(account, 'Investments');
-  const positions: { ticker: string; currentValue: Dec; costBasis: Dec; rawCap: string; diffs: Map<string, Dec> }[] = [];
+  const positions: { ticker: string; currentValue: Dec; costBasis: Dec; lastPrice: Dec; rawCap: string; diffs: Map<string, Dec> }[] = [];
   for (const parts of rows) {
     if (idx.symbol < 0 || idx.marketCap < 0 || idx.costBasisTotal < 0 || idx.currentValue < 0) continue;
     if (parts.length <= idx.symbol || parts.length <= idx.marketCap || parts.length <= idx.costBasisTotal || parts.length <= idx.currentValue) continue;
@@ -271,9 +285,10 @@ export function investmentsReport(account: Account): ReportTable {
     if (ticker === 'SPAXX**' || isExcludedTicker(ticker)) continue;
     const costBasis = parseMoney(parts[idx.costBasisTotal]);
     const currentValue = parseMoney(parts[idx.currentValue]);
+    const lastPrice = parseMoney(idx.lastPrice >= 0 ? parts[idx.lastPrice] : '');
     const diffs = new Map(INVESTMENT_THRESHOLDS.map(([label, target]) => [label, D.max(target.minus(costBasis), ZERO)]));
     if ([...diffs.values()].every(v => v.isZero())) continue;
-    positions.push({ ticker, currentValue, costBasis, rawCap: parts[idx.marketCap].trim(), diffs });
+    positions.push({ ticker, currentValue, costBasis, lastPrice, rawCap: parts[idx.marketCap].trim(), diffs });
   }
 
   const labels = INVESTMENT_THRESHOLDS.map(([label]) => label);
@@ -291,10 +306,13 @@ export function investmentsReport(account: Account): ReportTable {
   const body = positions.map(p => ({
     cap: parseMarketCap(p.rawCap),
     key: p.diffs.get(lastActive) ?? ZERO,
-    row: [p.ticker, money(p.currentValue), money(p.costBasis), formatMarketCap(p.rawCap), ...activeLabels.map(l => money(p.diffs.get(l) ?? ZERO))],
+    // every $N Diff is followed by $N Shares Diff: the fewest shares (CEILING to 0.001) that bring Costs to at least $N
+    row: [p.ticker, money(p.currentValue), money(p.costBasis), shares(p.currentValue, p.lastPrice, Decimal.ROUND_HALF_UP), formatMarketCap(p.rawCap),
+      ...activeLabels.flatMap(l => { const diff = p.diffs.get(l) ?? ZERO; return [money(diff), shares(diff, p.lastPrice, Decimal.ROUND_CEIL)]; })],
   }));
   const sorted = sortBy(body, (a, b) => a.key.comparedTo(b.key) || b.cap - a.cap);
-  return { columns: ['Symbol', 'Current $', 'Costs $', 'Market cap', ...activeLabels], rows: sorted.map(x => x.row) };
+  const columns = ['Symbol', 'Current $', 'Costs $', 'Shares', 'Market cap', ...activeLabels.flatMap(l => [l, l.replace(/ Diff$/, ' Shares Diff')])];
+  return { columns, rows: sorted.map(x => x.row) };
 }
 
 // ---- dividends ----------------------------------------------------------------------------
@@ -310,7 +328,7 @@ function parsePercent(raw: string): Dec | null {
 
 export function dividendsReport(account: Account): ReportTable {
   const { schema: idx, rows } = parsedRows(account, 'Dividends');
-  const positions: { symbol: string; yieldPercent: Dec; currentValue: Dec; minValue: Dec; baseValue: Dec; diffs: Map<string, Dec>; cap: string }[] = [];
+  const positions: { symbol: string; yieldPercent: Dec; currentValue: Dec; lastPrice: Dec; minValue: Dec; baseValue: Dec; diffs: Map<string, Dec>; cap: string }[] = [];
   for (const parts of rows) {
     if (idx.symbol < 0 || idx.distYield < 0 || idx.paymentFrequency < 0 || idx.lastPrice < 0 || idx.costBasisTotal < 0 || idx.currentValue < 0) continue;
     if (parts.length <= idx.symbol || parts.length <= idx.distYield || parts.length <= idx.paymentFrequency
@@ -331,7 +349,7 @@ export function dividendsReport(account: Account): ReportTable {
     const neededValue = minValue.times(frequency).div(yieldPercent.div('100.0'));
     const diffs = new Map(DIVIDEND_THRESHOLDS.map(([label, multiplier]) => [label, D.max(neededValue.times(multiplier).minus(currentValue), ZERO)]));
     if ([...diffs.values()].every(v => v.isZero())) continue;
-    positions.push({ symbol: ticker, yieldPercent, currentValue, minValue, baseValue: D.min(currentValue, costBasis), diffs, cap: marketCapOf(parts, idx) });
+    positions.push({ symbol: ticker, yieldPercent, currentValue, lastPrice, minValue, baseValue: D.min(currentValue, costBasis), diffs, cap: marketCapOf(parts, idx) });
   }
 
   const labels = DIVIDEND_THRESHOLDS.map(([label]) => label);
@@ -348,10 +366,13 @@ export function dividendsReport(account: Account): ReportTable {
   const firstActive = activeLabels[0] ?? '';
   const body = positions.map(p => ({
     key: p.diffs.get(firstActive) ?? ZERO,
-    row: [p.symbol, money(p.yieldPercent), money(p.currentValue), money(p.minValue), money(p.baseValue), ...activeLabels.map(l => money(p.diffs.get(l) ?? ZERO)), p.cap],
+    // every Nx Diff $ is followed by Nx Diff Shares: the shares to buy (CEILING to 0.001) to close that gap
+    row: [p.symbol, money(p.yieldPercent), money(p.currentValue), money(p.minValue), money(p.baseValue), shares(p.currentValue, p.lastPrice, Decimal.ROUND_HALF_UP),
+      ...activeLabels.flatMap(l => { const diff = p.diffs.get(l) ?? ZERO; return [money(diff), shares(diff, p.lastPrice, Decimal.ROUND_CEIL)]; }), p.cap],
   }));
   const sorted = sortBy(body, (a, b) => a.key.comparedTo(b.key));
-  return { columns: ['Symbol', 'Yield %', 'Value', '0.001 Costs $', 'Baseline $', ...activeLabels, 'Market cap'], rows: sorted.map(x => x.row), extra: 1 };
+  const columns = ['Symbol', 'Yield %', 'Value $', '0.001 Costs $', 'Baseline $', 'Shares', ...activeLabels.flatMap(l => [l, l.replace(' $', ' Shares')]), 'Market cap'];
+  return { columns, rows: sorted.map(x => x.row), extra: 1 };
 }
 
 // ---- DRIPs ------------------------------------------------------------------------------

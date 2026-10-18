@@ -3,7 +3,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   readFidelityAccounts, splitRow, schemaFromHeader, parseMoney, money, formatMarketCap, parseMarketCap,
   activeColumnLabels, watchlistReport, investmentsReport, dividendsReport, dripsReport, parseFidelityDate,
-  buildReport, reportText, readTable, watchlistName, REPORT_KINDS,
+  buildReport, reportText, readTable, watchlistName, isWatchlistBlacklisted, REPORT_KINDS,
 } from './reports';
 
 const HEADER = '﻿Account number,Account name,Symbol,Description,Cost basis total,Current value,Last price,Dist. rate,Payment frequency,Market cap,Ex-date,Pay date,Sector';
@@ -71,24 +71,27 @@ describe('reports', () => {
     expect([...activeColumnLabels(['a', 'b', 'c', 'd'], info)]).toEqual(['b', 'c']);
   });
 
-  it('watchlist: tickers by market cap, ETFs have no sector, aliases expanded, SPAXX is an ETF', () => {
-    expect(watchlistReport([account], ['Stock', 'ETF']).rows.map(r => r[0])).toEqual(['NVDA', 'BRKB', 'BRK.B', 'ITW', 'SPAXX', 'SCHD']);
-    expect(watchlistReport([account], ['ETF']).rows.map(r => r[0])).toEqual(['SPAXX', 'SCHD']);
+  it('watchlist: tickers by market cap, ETFs have no sector, aliases expanded, blacklist (SPAXX*, SGOV) left out', () => {
+    expect(watchlistReport([account], ['Stock', 'ETF']).rows.map(r => r[0])).toEqual(['NVDA', 'BRKB', 'BRK.B', 'ITW', 'SCHD']);
+    expect(watchlistReport([account], ['ETF']).rows.map(r => r[0])).toEqual(['SCHD']);
+    expect(['SPAXX', 'SPAXX**', 'SGOV', 'SGOVX', 'XSPAXX'].map(isWatchlistBlacklisted)).toEqual([true, true, true, false, false]);
   });
 
   it('investments: dollars still missing to each target, header shows only useful columns', () => {
     const table = investmentsReport(account);
-    expect(table.columns.slice(0, 6)).toEqual(['Symbol', 'Current $', 'Costs $', 'Market cap', '$5 Diff', '$6 Diff']);
+    expect(table.columns.slice(0, 8)).toEqual(['Symbol', 'Current $', 'Costs $', 'Shares', 'Market cap', '$5 Diff', '$5 Shares Diff', '$6 Diff']);
     expect(table.rows.map(r => r[0])).toEqual(['ITW', 'BRKB', 'SCHD']);
-    expect(table.rows[2].slice(0, 6)).toEqual(['SCHD', '2.05', '3.10', '', '1.90', '2.90']);
-    expect(table.columns.at(-1)).toBe('$21 Diff');
+    // shares held 2.05/27.10 = 0.0756 (HALF_UP), to buy 1.90/27.10 = 0.0701 -> 0.071 (CEILING, never under-buys)
+    expect(table.rows[2].slice(0, 8)).toEqual(['SCHD', '2.05', '3.10', '0.076', '', '1.90', '0.071', '2.90']);
+    expect(table.columns.at(-1)).toBe('$21 Shares Diff');
   });
 
   it('dividends: money needed so a payout buys 0.001 share, at 1x and up', () => {
     const table = dividendsReport(account);
-    expect(table.columns.slice(0, 6)).toEqual(['Symbol', 'Yield %', 'Value', '0.001 Costs $', 'Baseline $', '1x Diff $']);
+    expect(table.columns.slice(0, 8)).toEqual(['Symbol', 'Yield %', 'Value $', '0.001 Costs $', 'Baseline $', 'Shares', '1x Diff $', '1x Diff Shares']);
     const itw = table.rows.find(r => r[0] === 'ITW');
-    expect(itw?.slice(0, 6)).toEqual(['ITW', '2.64', '26.55', '0.26', '20.00', '13.22']);
+    // shares held 26.55/262.50 = 0.1011, to buy 13.2227/262.50 = 0.0504 -> 0.051
+    expect(itw?.slice(0, 8)).toEqual(['ITW', '2.64', '26.55', '0.26', '20.00', '0.101', '13.22', '0.051']);
   });
 
   it('DRIPs: shortfall in dollars and shares, dates only when after the run date', () => {
@@ -99,7 +102,7 @@ describe('reports', () => {
     expect(reportText('drips', table).split('\n')[0].endsWith('Payment Date')).toBe(true);
     expect(reportText('drips', table, true).split('\n')[0].endsWith('Payment Date,Market cap')).toBe(true);
     expect(dividendsReport(account).columns.at(-1)).toBe('Market cap');
-    expect(investmentsReport(account).columns.indexOf('Market cap')).toBe(3);
+    expect(investmentsReport(account).columns.indexOf('Market cap')).toBe(4);
   });
 
   it('output tabs: dividends, DRIPs, investments, watchlist; watchlists = All, All ETFs, All Stocks + one per account by scio name', () => {
