@@ -1,4 +1,6 @@
 #!/bin/sh
 # Runs on what is about to be committed (the index): full account numbers in staged data/*.csv are masked
 # automatically (index and working copy), and the commit is refused if any staged file still holds one.
+# Fails closed: without bun nothing can be checked, so nothing is committed.
+command -v bun >/dev/null 2>&1 || { echo "pre-commit: bun is not installed, the commit cannot be checked for account numbers: refused (install bun: https://bun.sh, then bun install)" >&2; exit 1; }
 exec bun scripts/sanitize-data.ts --pre-commit

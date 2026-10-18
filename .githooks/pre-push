@@ -1,3 +1,6 @@
 #!/bin/sh
-# Blocks a push while the working tree or any commit has a full account number in data/.
+# Last guard before anything leaves this machine: pre-commit does not run for rebase, cherry-pick, merge,
+# commit --no-verify or commits made in a clone without hooks, so the working tree and the whole history are
+# checked again here. Fails closed: without bun nothing can be checked, so nothing is pushed.
+command -v bun >/dev/null 2>&1 || { echo "pre-push: bun is not installed, the push cannot be checked for account numbers: refused (install bun: https://bun.sh, then bun install)" >&2; exit 1; }
 bun scripts/sanitize-data.ts --check && exec bun scripts/sanitize-data.ts --check-history

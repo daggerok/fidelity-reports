@@ -18,8 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the whole history, for check-history
       - uses: oven-sh/setup-bun@v2
       - run: bun install -E
       - run: bun run check-data
+      - run: bun run check-history
       - run: bun test
       - run: bun run build-github-pages
