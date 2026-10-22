@@ -6,7 +6,7 @@ Fidelity reports in the browser: dividends, DRIPs, investments and watchlists fr
 
 - At start the app loads the files of the repo `data/` folder (copied into `dist/data` by the build) and builds every report
 - **Input** tab: every input file as a table, one sub tab per file. Preamble, blank lines and the quoted disclaimers at the end are ignored; an all-accounts export is split by account
-- **Load files** (or drop CSV files on the page): the loaded files replace the repo data until the page is reloaded; more loads add files. **Repo data** goes back to the `data/` files
+- **Load files**: the picked CSV files replace the shown ones (the repo data or files loaded before). **Add files** adds to the loaded files (a file with the same name is replaced). The **✕** on a file tab of Input removes that file. A drop on the page loads over the repo data and adds over loaded files. **Repo data** goes back to the `data/` files, and so does a page reload
 - **Output** tab: the reports, built in a web worker; a spinner sits on a report tab until its report is ready
   - **Output per: file**: `1`, `2`, ... (one per account, in file name order like scio `Commons.captureInputs`), each with `Dividends`, `DRIPs`, `Investments`, `Watchlist`, plus `All` with the three watchlists over every account (`All`, `All ETFs`, `All Stocks`)
   - **Output per: report**: `Dividends`, `DRIPs`, `Investments`, `Watchlist`, each with `1`, `2`, ...; `Watchlist` has `All`, `All ETFs`, `All Stocks` and one list per account by its scio name (`Max ROTH IRA` -> `Max Roth`)
