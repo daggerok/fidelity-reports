@@ -4,8 +4,9 @@
 // the reports of scio-examples (sbt runMain io.github.daggerok.Main), built in the browser.
 //
 // - Input tab: every input file as a table. At start the files of the repo data/ folder are loaded
-//   (data/index.json lists them, `bun run build` copies data/ into dist/); Load files (or a drop on the
-//   page) replaces them until the page is reloaded
+//   (data/index.json lists them, `bun run build` copies data/ into dist/). Load files replaces the shown
+//   files with the picked ones, Add files adds to them (same name = replaced), the ✕ on a file tab removes
+//   that file; a drop on the page loads (over the repo data) or adds (over loaded files). Repo data goes back
 // - Output tab: the reports, built in a web worker right after the input changes; a spinner sits on
 //   each report tab until it is ready. "Output per: file" shows 1..N (one per account) and then the
 //   4 reports, plus "All" for the 3 watchlists over every account; "Output per: report" shows the
@@ -43,7 +44,7 @@ const el = {
   columnsBtn: byId('columns-btn'), columnsPanel: byId('columns-panel'), columnsSummary: byId('columns-summary'), columnsBadge: byId('columns-badge'),
   filtersBtn: byId('filters-btn'), filtersSummary: byId('filters-summary'), filtersBadge: byId('filters-badge'), clearFilters: byId('clear-filters-btn'),
   runDateWrap: byId('run-date-wrap'), runDate: byId('run-date'), status: byId('status'),
-  fileInput: byId('file-input'), loadBtn: byId('load-btn'), repoBtn: byId('repo-data-btn'),
+  fileInput: byId('file-input'), loadBtn: byId('load-btn'), addBtn: byId('add-btn'), repoBtn: byId('repo-data-btn'),
   copyBtn: byId('copy-btn'), csvBtn: byId('export-csv-btn'), txtBtn: byId('export-txt-btn'), allBtn: byId('download-all-btn'),
   sub1: byId('sub-tabs-1'), sub2: byId('sub-tabs-2'), busy: byId('busy-overlay'), busyLabel: byId('busy-label'),
   scroll: byId('table-scroll'), head: byId('table-head'), body: byId('table-body'), drop: byId('drop-overlay'),
@@ -187,21 +188,27 @@ async function loadRepoData(): Promise<void> {
   }
 }
 
-async function loadFiles(list: FileList | File[]): Promise<void> {
+/** replace: the picked files become the input; add: they join it (a file with the same name is replaced). */
+async function loadFiles(list: FileList | File[], mode: 'replace' | 'add'): Promise<void> {
   const picked = [...list].filter(f => /\.csv$/i.test(f.name) || f.type.includes('csv'));
   if (!picked.length) { setStatus('Only .csv files can be loaded'); return; }
   const loaded = await Promise.all(picked.map(async f => toInput(f.name, await f.text())));
-  // the first load replaces the repo data; more loads add files (a file with the same name is replaced)
-  const keep = state.source === 'loaded' ? state.files.filter(f => !loaded.some(l => l.name === f.name)) : [];
+  const keep = mode === 'add' ? state.files.filter(f => !loaded.some(l => l.name === f.name)) : [];
   state.inputFile = loaded[0].name;
   setInput([...keep, ...loaded], 'loaded');
   const plain = loaded.filter(f => !f.accounts).map(f => f.name);
-  setStatus(plain.length ? `Not a Fidelity positions export (shown on Input, not in the reports): ${plain.join(', ')}` : `${loaded.length} file${loaded.length === 1 ? '' : 's'} loaded`);
+  setStatus(plain.length ? `Not a Fidelity positions export (shown on Input, not in the reports): ${plain.join(', ')}` : `${loaded.length} file${loaded.length === 1 ? '' : 's'} ${mode === 'add' ? 'added' : 'loaded'}`);
+}
+
+/** The ✕ on an input file tab: the reports are rebuilt without it; Repo data brings the repo files back. */
+function removeFile(name: string): void {
+  setInput(state.files.filter(f => f.name !== name), 'loaded');
+  setStatus(`${name} removed`);
 }
 
 // ---- 3. What the output tabs show ------------------------------------------------------------------
 
-type Tab = { id: string; label: string; sub?: string; title?: string; busy?: boolean; warn?: boolean };
+type Tab = { id: string; label: string; sub?: string; title?: string; busy?: boolean; warn?: boolean; removable?: boolean };
 
 const kindLabel = (kind: ReportKind) => REPORT_KINDS.find(k => k.kind === kind)?.label ?? kind;
 const isCombined = (sheet: string) => COMBINED_WATCHLISTS.some(w => w.id === sheet);
@@ -236,10 +243,11 @@ function activeSheet(): ReportSheet | null {
 const PILL_ACTIVE = 'bg-blue-600 text-white font-medium border-blue-500 shadow-xs';
 const PILL_IDLE = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700';
 
-function pills(container: any, tabs: Tab[], active: string, onPick: (id: string) => void, big = false): void {
-  container.innerHTML = tabs.map(tab => `<button type="button" role="tab" data-tab="${escapeHtml(tab.id)}" aria-selected="${tab.id === active}"${tab.title ? ` title="${escapeHtml(tab.title)}"` : ''}
-    class="${big ? 'px-4 py-1.5 text-sm' : 'px-3.5 py-1.5 text-xs'} rounded-full transition border whitespace-nowrap ${tab.id === active ? PILL_ACTIVE : PILL_IDLE}">${tab.warn ? '⚠ ' : ''}<span class="tab-num">${escapeHtml(tab.label)}</span>${tab.sub ? `<span class="tab-sub">${escapeHtml(tab.sub)}</span>` : ''}${tab.busy ? '<span class="tab-spin" aria-label="building"></span>' : ''}</button>`).join('');
+function pills(container: any, tabs: Tab[], active: string, onPick: (id: string) => void, big = false, onRemove?: (id: string) => void): void {
+  container.innerHTML = tabs.map(tab => `${tab.removable ? '<span class="pill-wrap">' : ''}<button type="button" role="tab" data-tab="${escapeHtml(tab.id)}" aria-selected="${tab.id === active}"${tab.title ? ` title="${escapeHtml(tab.title)}"` : ''}
+    class="${big ? 'px-4 py-1.5 text-sm' : 'px-3.5 py-1.5 text-xs'} rounded-full transition border whitespace-nowrap ${tab.id === active ? PILL_ACTIVE : PILL_IDLE}">${tab.warn ? '⚠ ' : ''}<span class="tab-num">${escapeHtml(tab.label)}</span>${tab.sub ? `<span class="tab-sub">${escapeHtml(tab.sub)}</span>` : ''}${tab.busy ? '<span class="tab-spin" aria-label="building"></span>' : ''}</button>${tab.removable ? `<button type="button" data-remove="${escapeHtml(tab.id)}" class="pill-remove" title="Remove ${escapeHtml(tab.sub ?? tab.label)}" aria-label="Remove ${escapeHtml(tab.sub ?? tab.label)}">✕</button></span>` : ''}`).join('');
   container.querySelectorAll('button[data-tab]').forEach((button: any) => button.addEventListener('click', () => onPick(button.dataset.tab)));
+  if (onRemove) container.querySelectorAll('button[data-remove]').forEach((button: any) => button.addEventListener('click', () => onRemove(button.dataset.remove)));
 }
 
 function anyRunning(): boolean {
@@ -253,8 +261,8 @@ function renderTabs(): void {
   ], state.mainTab, id => { state.mainTab = id === 'input' ? 'input' : 'output'; state.search = ''; el.search.value = ''; persistView(); render(); }, true);
 
   if (state.mainTab === 'input') {
-    pills(el.sub1, state.files.map((f, i) => ({ id: f.name, label: String(i + 1), sub: f.name, warn: !f.accounts, title: f.accounts ? f.accounts.map(a => `${a.name} (${a.number})`).join(', ') : 'Not a Fidelity positions export: not used in the reports' })),
-      state.inputFile, id => { state.inputFile = id; render(); });
+    pills(el.sub1, state.files.map((f, i) => ({ id: f.name, label: String(i + 1), sub: f.name, warn: !f.accounts, removable: true, title: f.accounts ? f.accounts.map(a => `${a.name} (${a.number})`).join(', ') : 'Not a Fidelity positions export: not used in the reports' })),
+      state.inputFile, id => { state.inputFile = id; render(); }, false, removeFile);
     el.sub2.innerHTML = '';
     el.sub2.hidden = true;
     return;
@@ -428,6 +436,7 @@ function renderToolbar(): void {
   el.runDate.value = state.runDate;
   el.searchClear.classList.toggle('hidden', !state.search);
   el.repoBtn.hidden = state.source === 'repo' || !state.repoFiles.length;
+  el.addBtn.hidden = state.source === 'repo' || !state.files.length;
   const usable = !!p && !p.view.message && shown > 0;
   el.copyBtn.disabled = !usable || (p?.symbolCol ?? -1) < 0;
   el.csvBtn.disabled = !usable;
@@ -634,8 +643,11 @@ function initEvents(): void {
     },
   });
 
-  el.loadBtn.addEventListener('click', () => el.fileInput.click());
-  el.fileInput.addEventListener('change', () => { if (el.fileInput.files?.length) loadFiles(el.fileInput.files); el.fileInput.value = ''; });
+  // one file input for both buttons: the button that opened the picker decides replace or add
+  let pickMode: 'replace' | 'add' = 'replace';
+  el.loadBtn.addEventListener('click', () => { pickMode = 'replace'; el.fileInput.click(); });
+  el.addBtn.addEventListener('click', () => { pickMode = 'add'; el.fileInput.click(); });
+  el.fileInput.addEventListener('change', () => { if (el.fileInput.files?.length) loadFiles(el.fileInput.files, pickMode); el.fileInput.value = ''; pickMode = 'replace'; });
   el.repoBtn.addEventListener('click', () => { setInput(state.repoFiles, 'repo'); setStatus('Back to the repo data'); });
   el.copyBtn.addEventListener('click', () => {
     if (!prepared) return;
@@ -654,7 +666,7 @@ function initEvents(): void {
     e.preventDefault();
     dragDepth = 0;
     el.drop.hidden = true;
-    if (e.dataTransfer?.files.length) loadFiles(e.dataTransfer.files);
+    if (e.dataTransfer?.files.length) loadFiles(e.dataTransfer.files, state.source === 'loaded' ? 'add' : 'replace');
   });
   window.addEventListener('resize', fitTableHeight);
   new ResizeObserver(fitTableHeight).observe(document.getElementById('top-panels') ?? document.body);
