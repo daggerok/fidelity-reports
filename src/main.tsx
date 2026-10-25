@@ -213,13 +213,18 @@ type Tab = { id: string; label: string; sub?: string; title?: string; busy?: boo
 const kindLabel = (kind: ReportKind) => REPORT_KINDS.find(k => k.kind === kind)?.label ?? kind;
 const isCombined = (sheet: string) => COMBINED_WATCHLISTS.some(w => w.id === sheet);
 
+/** The report of this kind failed for the sheet (e.g. a required column is missing): its tabs get a ⚠, the table shows why. */
+function failed(kind: ReportKind, sheet: string): boolean {
+  return !!state.reports[kind].error || state.reports[kind].sheets.some(s => s.id === sheet && !!s.error);
+}
+
 function accountTabs(): Tab[] {
-  return state.accounts.map((a, i) => ({ id: a.id, label: String(i + 1), sub: a.name, title: `${a.name} (${a.number}) from ${a.fileName}` }));
+  return state.accounts.map((a, i) => ({ id: a.id, label: String(i + 1), sub: a.name, title: `${a.name} (${a.number}) from ${a.fileName}`, warn: REPORT_KINDS.some(k => failed(k.kind, a.id)) }));
 }
 
 /** The sheet ids of a report in tab order: watchlist = All, All ETFs, All Stocks, then the accounts by name (like scio target/watchlist). */
 function sheetTabs(kind: ReportKind): Tab[] {
-  if (kind !== 'watchlist') return accountTabs();
+  if (kind !== 'watchlist') return accountTabs().map(t => ({ ...t, warn: failed(kind, t.id) }));
   const sheets = state.reports.watchlist.sheets;
   const name = (id: string) => sheets.find(s => s.id === id)?.title ?? state.accounts.find(a => a.id === id)?.name ?? id;
   const combined = COMBINED_WATCHLISTS.map(w => ({ id: w.id, label: w.title, title: `${w.title}: every account` }));
@@ -269,7 +274,7 @@ function renderTabs(): void {
   }
   el.sub2.hidden = false;
   normalizeSelection();
-  const kindTabs = (): Tab[] => REPORT_KINDS.map(k => ({ id: k.kind, label: k.label, busy: state.reports[k.kind].status === 'running' }));
+  const kindTabs = (): Tab[] => REPORT_KINDS.map(k => ({ id: k.kind, label: k.label, busy: state.reports[k.kind].status === 'running', warn: failed(k.kind, state.sheet) }));
   const pickKind = (id: string) => {
     state.kind = id as ReportKind;
     if (state.kind !== 'watchlist' && isCombined(state.sheet)) state.sheet = state.accounts[0]?.id ?? '';

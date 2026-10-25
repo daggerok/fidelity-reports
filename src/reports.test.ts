@@ -1,9 +1,11 @@
 /// <reference types="bun" />
 import { describe, it, expect } from 'bun:test';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   readFidelityAccounts, splitRow, schemaFromHeader, parseMoney, money, formatMarketCap, parseMarketCap,
   activeColumnLabels, watchlistReport, investmentsReport, dividendsReport, dripsReport, parseFidelityDate,
-  buildReport, reportText, readTable, watchlistName, isWatchlistBlacklisted, REPORT_KINDS,
+  buildReport, requireColumns, reportText, readTable, watchlistName, isWatchlistBlacklisted, REPORT_KINDS,
 } from './reports';
 
 const HEADER = '﻿Account number,Account name,Symbol,Description,Cost basis total,Current value,Last price,Dist. rate,Payment frequency,Market cap,Ex-date,Pay date,Sector';
@@ -119,5 +121,45 @@ describe('reports', () => {
     expect(sheets[1].error).toContain('Fidelity header row not found');
     expect(reportText('watchlist', { columns: ['Symbol'], rows: [['A'], ['B']] })).toBe('A\nB\n');
     expect(reportText('drips', { columns: ['S', 'V'], rows: [['A', '1']] })).toBe('S,V\nA,1\n');
+  });
+});
+
+describe('required columns', () => {
+  // SAMPLE with header names swapped, so every data row stays the same
+  const renamed = (names: Record<string, string>) => {
+    const header = Object.entries(names).reduce((h, [from, to]) => h.replace(`,${from},`, `,${to},`), HEADER);
+    return (readFidelityAccounts('positions.csv', SAMPLE.replace(HEADER, header)) ?? [])[0];
+  };
+  const errorOf = (kind: 'investments' | 'dividends' | 'drips', acct: typeof account) => buildReport(kind, [acct], '2026-10-02')[0].error;
+
+  it('the sample and the real 38, 39 and 41 column headers have every required column', () => {
+    const dir = 'data'; // bun test runs from the repo root
+    const headers = readdirSync(dir).filter(f => f.endsWith('.csv')).map(f => readFileSync(join(dir, f), 'utf8').split(/\r?\n/)[0]);
+    expect(new Set(headers.map(h => schemaFromHeader(h).commas + 1))).toEqual(new Set([38, 39, 41]));
+    for (const header of [HEADER, ...headers]) {
+      for (const report of ['Investments', 'Dividends', 'DRIPs'] as const) expect(() => requireColumns(report, schemaFromHeader(header))).not.toThrow();
+    }
+    for (const kind of ['investments', 'dividends', 'drips'] as const) expect(errorOf(kind, account)).toBeUndefined();
+  });
+
+  it('a missing Last price fails investments with its name instead of an empty report', () => {
+    expect(() => investmentsReport(renamed({ 'Last price': 'Price' }))).toThrow('Fidelity header is missing required column(s) for Investments: Last price.');
+    expect(errorOf('investments', renamed({ 'Market cap': 'Mkt cap', 'Cost basis total': 'Cost basis' })))
+      .toBe('Fidelity header is missing required column(s) for Investments: Cost basis total, Market cap.');
+  });
+
+  it('dividends and DRIPs name their missing columns; Dist. yield still works, Pay date is optional', () => {
+    expect(errorOf('dividends', renamed({ 'Payment frequency': 'Frequency' }))).toBe('Fidelity header is missing required column(s) for Dividends: Payment frequency.');
+    expect(errorOf('dividends', renamed({ 'Dist. rate': 'Yield' }))).toBe('Fidelity header is missing required column(s) for Dividends: Dist. rate (or Dist. yield).');
+    expect(errorOf('drips', renamed({ 'Ex-date': 'Ex date' }))).toBe('Fidelity header is missing required column(s) for DRIPs: Ex-date.');
+    expect(dividendsReport(renamed({ 'Dist. rate': 'Dist. yield' })).rows.map(r => r[0])).toEqual(dividendsReport(account).rows.map(r => r[0]));
+    expect(dripsReport(renamed({ 'Pay date': 'Payment date' }), '2026-10-02').rows.map(r => r[0])).toEqual(['SCHD', 'ITW']);
+  });
+
+  it('a file without a Symbol column still becomes an account, so every report says what is missing', () => {
+    const noSymbol = renamed({ Symbol: 'Ticker' });
+    expect(noSymbol.lines.length).toBe(6);
+    expect(errorOf('drips', noSymbol)).toBe('Fidelity header is missing required column(s) for DRIPs: Symbol.');
+    expect(errorOf('investments', noSymbol)).toContain('Investments: Symbol.');
   });
 });
