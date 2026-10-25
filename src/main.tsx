@@ -1,4 +1,5 @@
 /// <reference types="bun" />
+/// <reference lib="esnext" />
 // =========================================================================
 // Fidelity Reports: Fidelity Portfolio_Positions CSV exports -> dividends, DRIPs, investments and watchlists,
 // the reports of scio-examples (sbt runMain io.github.daggerok.Main), built in the browser.
@@ -195,7 +196,7 @@ async function loadRepoData(): Promise<void> {
 
 /** replace: the picked files become the input; add: they join it (a file with the same name is replaced). */
 async function loadFiles(list: FileList | File[], mode: 'replace' | 'add'): Promise<void> {
-  const picked = [...list].filter(f => /\.csv$/i.test(f.name) || f.type.includes('csv'));
+  const picked = Array.from(list).filter(f => /\.csv$/i.test(f.name) || f.type.includes('csv'));
   if (!picked.length) { setStatus('Only .csv files can be loaded'); return; }
   try {
     // a file that cannot be read (moved or deleted after picking, no permission) is reported, the others still load

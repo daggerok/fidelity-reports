@@ -1,3 +1,4 @@
+/// <reference lib="esnext" />
 // Masks Fidelity account numbers: AB1234567 -> *****4567 (every character but the last 4 becomes *, the length
 // stays). Used by scripts/sanitize-data.ts for the repo data/ and by the app for every file it loads, so a full
 // account number is never stored in the repo nor shown on the page. Pure code, no DOM, no node APIs.
@@ -50,7 +51,7 @@ export function sanitizeText(text: string): { text: string; findings: Finding[] 
     rows.push({ index: i, parts });
   }
   if (!rows.length) return { text, findings };
-  const numbers = [...new Set(rows.map(r => r.parts[column].trim().replace(/"/g, '')))];
+  const numbers = Array.from(new Set(rows.map(r => r.parts[column].trim().replace(/"/g, ''))));
   if (new Set(numbers.map(n => n.slice(-KEEP))).size < numbers.length) throw new Error('two accounts end with the same 4 characters: cannot mask them apart');
   for (const { index, parts } of rows) {
     parts[column] = maskValue(parts[column]);

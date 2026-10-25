@@ -1,3 +1,4 @@
+/// <reference lib="esnext" />
 // Fidelity portfolio-position exports -> the four reports of scio-examples (Main.scala runs
 // BuildFidelityAccountsWatchlistScioApp, ...InvestmentsScioApp, ...DividendsScioApp, ...DRIPsScioApp).
 // Pure code, no DOM: the web worker runs it in the background and `bun test` checks it.
@@ -119,7 +120,7 @@ export function readFidelityAccounts(fileName: string, text: string): Account[] 
     }
     account.lines.push(row);
   }
-  return [...accounts.values()];
+  return Array.from(accounts.values());
 }
 
 // ---- Commons helpers --------------------------------------------------------------------
@@ -280,7 +281,7 @@ export function watchlistReport(accounts: Account[], securities: Security[]): Re
       }
     }
   }
-  const sorted = sortBy([...seen.entries()], (a, b) => b[1].cap - a[1].cap);
+  const sorted = sortBy(Array.from(seen.entries()), (a, b) => b[1].cap - a[1].cap);
   return { columns: ['Symbol', 'Market cap'], rows: sorted.map(([t, v]) => [t, v.capText]) };
 }
 
@@ -306,7 +307,7 @@ export function investmentsReport(account: Account): ReportTable {
     const currentValue = parseMoney(parts[idx.currentValue]);
     const lastPrice = parseMoney(parts[idx.lastPrice]);
     const diffs = new Map(INVESTMENT_THRESHOLDS.map(([label, target]) => [label, D.max(target.minus(costBasis), ZERO)]));
-    if ([...diffs.values()].every(v => v.isZero())) continue;
+    if (Array.from(diffs.values()).every(v => v.isZero())) continue;
     positions.push({ ticker, currentValue, costBasis, lastPrice, rawCap: parts[idx.marketCap].trim(), diffs });
   }
 
@@ -367,7 +368,7 @@ export function dividendsReport(account: Account): ReportTable {
     const minValue = lastPrice.times('0.001');
     const neededValue = minValue.times(frequency).div(yieldPercent.div('100.0'));
     const diffs = new Map(DIVIDEND_THRESHOLDS.map(([label, multiplier]) => [label, D.max(neededValue.times(multiplier).minus(currentValue), ZERO)]));
-    if ([...diffs.values()].every(v => v.isZero())) continue;
+    if (Array.from(diffs.values()).every(v => v.isZero())) continue;
     positions.push({ symbol: ticker, yieldPercent, currentValue, lastPrice, minValue, baseValue: D.min(currentValue, costBasis), diffs, cap: marketCapOf(parts, idx) });
   }
 
