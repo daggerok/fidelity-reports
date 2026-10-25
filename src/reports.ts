@@ -108,7 +108,8 @@ export function readFidelityAccounts(fileName: string, text: string): Account[] 
     const row = raw.trim();
     if (!row || isFidelityHeaderRow(row)) continue;
     const parts = splitRow(row);
-    if (schema.symbol < 0 || parts.length <= schema.symbol) continue;
+    // without a Symbol column keep every multi-field row: the reports then name the missing column instead of staying empty
+    if (schema.symbol < 0 ? parts.length < 2 : parts.length <= schema.symbol) continue;
     const number = parts[0];
     let account = accounts.get(number);
     if (!account) {
@@ -191,6 +192,23 @@ function parsedRows(account: Account, report: string): { schema: FidelitySchema;
     .filter(line => line !== '' && !isFidelityHeaderRow(line))
     .map(splitRow);
   return { schema, rows };
+}
+
+/** Columns each report cannot work without: [header name, resolved index] (BuildFidelity*ScioApp.requiredColumns). */
+const REQUIRED_COLUMNS: Record<'Investments' | 'Dividends' | 'DRIPs', (s: FidelitySchema) => [string, number][]> = {
+  Investments: s => [['Symbol', s.symbol], ['Cost basis total', s.costBasisTotal], ['Current value', s.currentValue], ['Last price', s.lastPrice], ['Market cap', s.marketCap]],
+  Dividends: s => [['Symbol', s.symbol], ['Dist. rate (or Dist. yield)', s.distYield], ['Payment frequency', s.paymentFrequency], ['Last price', s.lastPrice], ['Cost basis total', s.costBasisTotal], ['Current value', s.currentValue]],
+  // Pay date is optional
+  DRIPs: s => [['Symbol', s.symbol], ['Current value', s.currentValue], ['Last price', s.lastPrice], ['Dist. rate (or Dist. yield)', s.distYield], ['Payment frequency', s.paymentFrequency], ['Ex-date', s.exDate]],
+};
+
+/**
+ * Commons.requireColumns: a report whose header lacks a required column fails with every missing name,
+ * instead of dropping every row and showing an empty report.
+ */
+export function requireColumns(report: keyof typeof REQUIRED_COLUMNS, schema: FidelitySchema): void {
+  const missing = REQUIRED_COLUMNS[report](schema).filter(([, index]) => index < 0).map(([name]) => name);
+  if (missing.length) throw new Error(`Fidelity header is missing required column(s) for ${report}: ${missing.join(', ')}.`);
 }
 
 /** Stable sort that keeps input order for ties (Beam gives no tie order, the comparison treats ties as a set). */
@@ -277,15 +295,16 @@ const MIN_FIDELITY_ORDER = new D('1.00');
 
 export function investmentsReport(account: Account): ReportTable {
   const { schema: idx, rows } = parsedRows(account, 'Investments');
+  requireColumns('Investments', idx);
   const positions: { ticker: string; currentValue: Dec; costBasis: Dec; lastPrice: Dec; rawCap: string; diffs: Map<string, Dec> }[] = [];
   for (const parts of rows) {
-    if (idx.symbol < 0 || idx.marketCap < 0 || idx.costBasisTotal < 0 || idx.currentValue < 0) continue;
-    if (parts.length <= idx.symbol || parts.length <= idx.marketCap || parts.length <= idx.costBasisTotal || parts.length <= idx.currentValue) continue;
+    if (parts.length <= idx.symbol || parts.length <= idx.marketCap || parts.length <= idx.costBasisTotal || parts.length <= idx.currentValue
+      || parts.length <= idx.lastPrice) continue;
     const ticker = parts[idx.symbol].trim();
     if (ticker === 'SPAXX**' || isExcludedTicker(ticker)) continue;
     const costBasis = parseMoney(parts[idx.costBasisTotal]);
     const currentValue = parseMoney(parts[idx.currentValue]);
-    const lastPrice = parseMoney(idx.lastPrice >= 0 ? parts[idx.lastPrice] : '');
+    const lastPrice = parseMoney(parts[idx.lastPrice]);
     const diffs = new Map(INVESTMENT_THRESHOLDS.map(([label, target]) => [label, D.max(target.minus(costBasis), ZERO)]));
     if ([...diffs.values()].every(v => v.isZero())) continue;
     positions.push({ ticker, currentValue, costBasis, lastPrice, rawCap: parts[idx.marketCap].trim(), diffs });
@@ -328,9 +347,9 @@ function parsePercent(raw: string): Dec | null {
 
 export function dividendsReport(account: Account): ReportTable {
   const { schema: idx, rows } = parsedRows(account, 'Dividends');
+  requireColumns('Dividends', idx);
   const positions: { symbol: string; yieldPercent: Dec; currentValue: Dec; lastPrice: Dec; minValue: Dec; baseValue: Dec; diffs: Map<string, Dec>; cap: string }[] = [];
   for (const parts of rows) {
-    if (idx.symbol < 0 || idx.distYield < 0 || idx.paymentFrequency < 0 || idx.lastPrice < 0 || idx.costBasisTotal < 0 || idx.currentValue < 0) continue;
     if (parts.length <= idx.symbol || parts.length <= idx.distYield || parts.length <= idx.paymentFrequency
       || parts.length <= idx.lastPrice || parts.length <= idx.costBasisTotal || parts.length <= idx.currentValue) continue;
     const yieldPercent = parsePercent(parts[idx.distYield]);
@@ -412,9 +431,9 @@ export function todayIso(now: Date = new Date()): string {
  */
 export function dripsReport(account: Account, runDate: string = todayIso()): ReportTable {
   const { schema: idx, rows } = parsedRows(account, 'DRIPs');
+  requireColumns('DRIPs', idx);
   const out: { ppy: Dec; minimalDrip: Dec; row: string[] }[] = [];
   for (const parts of rows) {
-    if (idx.symbol < 0 || idx.currentValue < 0 || idx.lastPrice < 0 || idx.distYield < 0 || idx.paymentFrequency < 0 || idx.exDate < 0) continue;
     if (parts.length <= idx.symbol || parts.length <= idx.currentValue || parts.length <= idx.lastPrice
       || parts.length <= idx.distYield || parts.length <= idx.paymentFrequency || parts.length <= idx.exDate) continue;
     const ticker = parts[idx.symbol].trim();
