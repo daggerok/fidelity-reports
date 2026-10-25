@@ -5,10 +5,12 @@
 //   input:  <scio>/src/main/resources/input/*.csv (file N = the N-th file by name, like Commons.captureInputs)
 //   output: <scio>/target/{dividends,DRIPs,investments}/N.csv and target/watchlist/<name>.{csv,txt}
 // runDate is the day the Scala job ran (DRIPs show only dates after it); default: the date of target/DRIPs/1.csv.
-// Beam gives no order to rows with equal sort keys: those reports are compared as a set of rows, plus the order of the keys.
+// Investments and DRIPs must be byte-identical. Dividends and watchlists have rows with equal sort keys, which Beam
+// gives no order: same header, same set of rows and the same sequence of sort keys (scripts/compare-report.ts).
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildReport, readFidelityAccounts, reportText, todayIso, REPORT_KINDS } from '../src/reports';
+import { buildReport, parseMarketCap, readFidelityAccounts, reportText, todayIso, REPORT_KINDS } from '../src/reports';
+import { compareReport, type OrderCheck } from './compare-report';
 
 const scio = process.argv[2] ?? '../scio-examples';
 const inputDir = join(scio, 'src/main/resources/input');
@@ -22,43 +24,39 @@ let passed = 0;
 let failed = 0;
 const exact: string[] = [];
 
-function lines(text: string): string[] {
-  return text.split('\n').filter(Boolean);
+function compare(label: string, expectedText: string, actualText: string, check: OrderCheck): void {
+  if (expectedText === actualText) exact.push(label);
+  const problems = compareReport(expectedText, actualText, check);
+  if (!problems.length) { passed += 1; return; }
+  failed += 1;
+  console.log(`FAIL ${label} (${check.kind === 'bytes' ? 'must be byte-identical' : 'rows as a set, sort keys in order'})`);
+  problems.forEach(p => console.log(`  ${p}`));
 }
 
-/** Same header, same set of rows; reports the first differences. */
-function compare(label: string, expectedText: string, actualText: string, header: boolean): void {
-  const e = lines(expectedText);
-  const a = lines(actualText);
-  if (expectedText === actualText) exact.push(label);
-  const same = (!header || e[0] === a[0]) && [...e].sort().join('\n') === [...a].sort().join('\n');
-  if (same) { passed += 1; return; }
-  failed += 1;
-  console.log(`FAIL ${label}: expected ${e.length} lines, got ${a.length}`);
-  if (header && e[0] !== a[0]) console.log(`  header expected: ${e[0]}\n  header actual:   ${a[0]}`);
-  e.filter(l => !a.includes(l)).slice(0, 5).forEach(l => console.log(`  - ${l}`));
-  a.filter(l => !e.includes(l)).slice(0, 5).forEach(l => console.log(`  + ${l}`));
-}
+// dividends sort by the first diff column (the 7th, after Symbol..Shares)
+const dividendsCheck: OrderCheck = { kind: 'keys', header: true, key: line => line.split(',')[6] ?? '' };
 
 for (const { kind, folder } of REPORT_KINDS) {
   const sheets = buildReport(kind, accounts, runDate);
   if (kind !== 'watchlist') {
+    const check: OrderCheck = kind === 'dividends' ? dividendsCheck : { kind: 'bytes' };
     sheets.forEach((sheet, i) => {
       const file = join(target, folder, `${i + 1}.csv`);
       if (sheet.error || !existsSync(file)) { failed += 1; console.log(`FAIL ${folder}/${i + 1}.csv: ${sheet.error ?? 'missing in target'}`); return; }
-      compare(`${folder}/${i + 1}.csv (${sheet.title})`, readFileSync(file, 'utf8'), reportText(kind, sheet.table), true);
+      compare(`${folder}/${i + 1}.csv (${sheet.title})`, readFileSync(file, 'utf8'), reportText(kind, sheet.table), check);
     });
     continue;
   }
   for (const sheet of sheets) {
+    // watchlists list tickers by market cap, largest first: the cap of each ticker is the sort key
+    const caps = new Map(sheet.table.rows.map(([ticker, capText]) => [ticker, String(parseMarketCap(capText))]));
+    const check: OrderCheck = { kind: 'keys', header: false, key: ticker => caps.get(ticker) ?? `? (${ticker} not in this report)` };
     for (const ext of ['csv', 'txt']) {
       const file = join(target, folder, `${sheet.title}.${ext}`);
       if (!existsSync(file)) { failed += 1; console.log(`FAIL missing ${file}`); continue; }
-      const expected = readFileSync(file, 'utf8');
-      const actual = reportText(kind, sheet.table);
       // All, All ETFs, All Stocks: every file read with its own header (scio-examples fixed the one-header bug in
-      // BuildFidelityAccountsWatchlistScioApp.combinedPipeline); equal market caps have no order, so compare as sets
-      compare(`watchlist/${sheet.title}.${ext}`, expected, actual, false);
+      // BuildFidelityAccountsWatchlistScioApp.combinedPipeline)
+      compare(`watchlist/${sheet.title}.${ext}`, readFileSync(file, 'utf8'), reportText(kind, sheet.table), check);
     }
   }
 }
