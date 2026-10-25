@@ -70,7 +70,7 @@ describe('parsing', () => {
 describe('reports', () => {
   it('active columns stop after the first kept column without zeros', () => {
     const info = new Map<string, [boolean, boolean]>([['a', [false, true]], ['b', [true, true]], ['c', [true, false]], ['d', [true, false]]]);
-    expect([...activeColumnLabels(['a', 'b', 'c', 'd'], info)]).toEqual(['b', 'c']);
+    expect(Array.from(activeColumnLabels(['a', 'b', 'c', 'd'], info))).toEqual(['b', 'c']);
   });
 
   it('watchlist: tickers by market cap, ETFs have no sector, aliases expanded, blacklist (SPAXX*, SGOV) left out', () => {

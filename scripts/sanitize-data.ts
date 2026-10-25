@@ -51,7 +51,8 @@ function walk(dir: string): string[] {
   });
 }
 
-const ROOT = join(import.meta.dir, '..');
+// __dirname and require.main instead of import.meta: the owner's IDE checks this file with the TypeScript defaults (ES5, commonjs)
+const ROOT = join(__dirname, '..');
 const DATA = join(ROOT, 'data');
 
 function dataFiles(): string[] {
@@ -176,4 +177,4 @@ function main(argv: string[]): number {
   return 0;
 }
 
-if (import.meta.main) process.exit(main(process.argv.slice(2)));
+if (require.main === module) process.exit(main(process.argv.slice(2)));

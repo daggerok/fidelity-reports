@@ -1,5 +1,7 @@
+/// <reference lib="esnext" />
 // Copied verbatim from the workspace block .claude/tools/etfs/ui-std/filter-engine.tsx (ETF apps, Stocks, gex);
-// only the export line at the end is added. Change the block there first, then copy it here again.
+// only the export line at the end is added, plus the esnext lib reference for the IDE's ES5 type check.
+// Change the block there first, then copy it here again.
 // =========================================================================
 // 3b. Column types, auto-detection and the column filter engine (pure, no DOM)
 // =========================================================================

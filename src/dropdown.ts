@@ -1,5 +1,7 @@
+/// <reference lib="esnext" />
 // Copied verbatim from the workspace block .claude/tools/etfs/ui-std/dropdown.tsx (the Columns menu of the ETF apps and Stocks);
-// only the import and the export line are added. Change the block there first, then copy it here again.
+// only the import and the export line are added, plus the esnext lib reference and Array.from over the NodeList
+// for the IDE's ES5 type check. Change the block there first, then copy it here again.
 import { escapeHtml, normalizeSearchText } from './html';
 
 type DropdownItem = { id: string; label: string; count: number; selected: boolean; badges?: string; locked?: boolean }; // locked: always selected, cannot be toggled
@@ -287,7 +289,7 @@ function createDropdown(cfg: DropdownConfig): Dropdown {
     event.preventDefault();
     close();
     if (event.shiftKey) { trigger.focus({ preventScroll: true }); return; }
-    const page = [...document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
+    const page = Array.from(document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]'))
       .filter((node: any) => !panel.contains(node) && node.tabIndex >= 0 && !node.disabled && (node.offsetParent !== null || node === trigger));
     const next: any = page[page.indexOf(trigger) + 1];
     if (next) next.focus();

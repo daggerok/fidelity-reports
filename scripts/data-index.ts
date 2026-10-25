@@ -5,7 +5,8 @@
 import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const dir = join(import.meta.dir, '..', 'data');
+// __dirname instead of import.meta: the owner's IDE checks this file with the TypeScript defaults (ES5, commonjs)
+const dir = join(__dirname, '..', 'data');
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 const files = readdirSync(dir).filter(f => !f.startsWith('.') && f.toLowerCase().endsWith('.csv')).sort(collator.compare);
 writeFileSync(join(dir, 'index.json'), `${JSON.stringify({ files }, null, 2)}\n`);
