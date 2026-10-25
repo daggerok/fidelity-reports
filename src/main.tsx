@@ -28,6 +28,7 @@ import {
 } from './filter-engine';
 import { createDropdown, type Dropdown } from './dropdown';
 import { escapeHtml } from './html';
+import { readPicked, repoDataTakesOver } from './input';
 import { strToU8, zipSync } from 'fflate';
 
 // ---- 1. DOM, state, storage -----------------------------------------------------------------------
@@ -179,10 +180,14 @@ async function loadRepoData(): Promise<void> {
     const names: string[] = Array.isArray(index.files) ? index.files.filter((n: unknown) => typeof n === 'string') : [];
     const files = await Promise.all(names.map(async name => toInput(name, await (await fetch(`data/${encodeURIComponent(name)}`, { cache: 'no-cache' })).text())));
     state.repoFiles = files;
-    setInput(files, 'repo');
+    // files loaded while the repo data was on its way stay; the Repo data button brings the repo files back
+    if (repoDataTakesOver(state.source)) setInput(files, 'repo');
+    else render();
   } catch (e) {
-    setStatus(`Could not load the repo data (${e instanceof Error ? e.message : String(e)}): load files instead`);
-    setInput([], 'repo');
+    if (repoDataTakesOver(state.source)) {
+      setStatus(`Could not load the repo data (${e instanceof Error ? e.message : String(e)}): load files instead`);
+      setInput([], 'repo');
+    }
   } finally {
     setBusy(false);
   }
@@ -192,12 +197,21 @@ async function loadRepoData(): Promise<void> {
 async function loadFiles(list: FileList | File[], mode: 'replace' | 'add'): Promise<void> {
   const picked = [...list].filter(f => /\.csv$/i.test(f.name) || f.type.includes('csv'));
   if (!picked.length) { setStatus('Only .csv files can be loaded'); return; }
-  const loaded = await Promise.all(picked.map(async f => toInput(f.name, await f.text())));
-  const keep = mode === 'add' ? state.files.filter(f => !loaded.some(l => l.name === f.name)) : [];
-  state.inputFile = loaded[0].name;
-  setInput([...keep, ...loaded], 'loaded');
-  const plain = loaded.filter(f => !f.accounts).map(f => f.name);
-  setStatus(plain.length ? `Not a Fidelity positions export (shown on Input, not in the reports): ${plain.join(', ')}` : `${loaded.length} file${loaded.length === 1 ? '' : 's'} ${mode === 'add' ? 'added' : 'loaded'}`);
+  try {
+    // a file that cannot be read (moved or deleted after picking, no permission) is reported, the others still load
+    const { read, failed } = await readPicked(picked);
+    const unreadable = failed.length ? `could not read ${failed.join(', ')}` : '';
+    if (!read.length) { setStatus(`Nothing loaded: ${unreadable}`); return; }
+    const loaded = read.map(f => toInput(f.name, f.text));
+    const keep = mode === 'add' ? state.files.filter(f => !loaded.some(l => l.name === f.name)) : [];
+    state.inputFile = loaded[0].name;
+    setInput([...keep, ...loaded], 'loaded');
+    const plain = loaded.filter(f => !f.accounts).map(f => f.name);
+    const done = plain.length ? `Not a Fidelity positions export (shown on Input, not in the reports): ${plain.join(', ')}` : `${loaded.length} file${loaded.length === 1 ? '' : 's'} ${mode === 'add' ? 'added' : 'loaded'}`;
+    setStatus(unreadable ? `${done}; ${unreadable}` : done);
+  } catch (e) {
+    setStatus(`Could not load the files (${e instanceof Error ? e.message : String(e)})`);
+  }
 }
 
 /** The ✕ on an input file tab: the reports are rebuilt without it; Repo data brings the repo files back. */
