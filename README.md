@@ -35,7 +35,7 @@ A full account number never gets into a commit, the repo or the public site:
 
 `bun run compare` (or `bun scripts/compare-scio.ts <scio-examples dir> [runDate]`) builds the reports from `scio-examples/src/main/resources/input` and compares them with `target/{dividends,DRIPs,investments,watchlist}`. On the 2026-10-16 data with the fixed scio-examples: 41 passed, 0 failed
 
-- Dividends, DRIPs, investments and the per-account watchlists match. Rows with an equal sort key (the same market cap in a watchlist, the same first diff in dividends) have no defined order in Beam, so those files are compared as sets; investments and DRIPs are byte-identical
+- Dividends, DRIPs, investments and the per-account watchlists match. Rows with an equal sort key (the same market cap in a watchlist, the same first diff in dividends) have no defined order in Beam, so those files must have the same header, the same set of rows and the same sequence of sort keys from top to bottom (only rows with an equal key may swap); investments and DRIPs must be byte-identical
 - `All`, `All ETFs` and `All Stocks` read every file with its own header. The exports differ in columns (`Sleeve name`: 38, 39 or 41 columns); scio-examples used to read the union of the files with ONE header, which shifted Symbol, Market cap and Sector of the other files (tickers lost, stocks in `All ETFs`). That is fixed in scio-examples (`BuildFidelityAccountsWatchlistScioApp.combinedPipeline`); compare with a `target/` built after the fix
 - Money math uses `decimal.js` with 34 digits and HALF_EVEN, the MathContext of Scala's `BigDecimal`, so every cent matches
 
@@ -55,7 +55,7 @@ Layout (same shape as Stocks):
 - `src/reports.ts`: the four Scala jobs ported to TypeScript, pure (`bun test` checks it), `src/worker.ts` runs it in the background
 - `src/filter-engine.ts`, `src/dropdown.ts`: verbatim copies of the shared ETF and Stocks blocks (column types, filter grammar, Columns menu)
 - `data/`: the default input files; `scripts/data-index.ts` writes `data/index.json` before every build and serve
-- `scripts/compare-scio.ts`: the check against scio-examples
+- `scripts/compare-scio.ts`: the check against scio-examples, `scripts/compare-report.ts` how one report is compared (tested by `scripts/compare-report.test.ts`)
 
 ## License
 
