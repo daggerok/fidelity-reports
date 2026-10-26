@@ -318,8 +318,12 @@ function renderTabs(): void {
 
 // ---- 5. Rendering: the table ----------------------------------------------------------------------
 
-/** message: shown instead of the rows; notices: warnings shown above the rows of a report that was built (ReportSheet.warnings). */
-type View = { scope: string; table: ReportTable; exportName: string; exportKind: ReportKind | 'input'; message: string; notices?: string[] };
+/**
+ * message: shown instead of the rows; notices: warnings shown above the rows of a report that was built (ReportSheet.warnings);
+ * txtName: the Export .txt file name when it differs from exportName: a watchlist exports as its scio file (All.txt), never
+ * watchlist-All.txt
+ */
+type View = { scope: string; table: ReportTable; exportName: string; txtName?: string; exportKind: ReportKind | 'input'; message: string; notices?: string[] };
 
 function currentView(): View {
   if (state.mainTab === 'input') {
@@ -336,7 +340,7 @@ function currentView(): View {
   const folder = REPORT_KINDS.find(k => k.kind === state.kind)?.folder ?? state.kind;
   const index = state.accounts.findIndex(a => a.id === sheet.id);
   const name = state.kind === 'watchlist' ? sheet.title : String(index + 1); // the scio target file name
-  return { scope: state.kind, table: sheet.table, exportName: `${folder}-${name}`, exportKind: state.kind, message: sheet.table.rows.length ? '' : 'Nothing in this report', notices: sheet.warnings };
+  return { scope: state.kind, table: sheet.table, exportName: `${folder}-${name}`, txtName: state.kind === 'watchlist' ? name : undefined, exportKind: state.kind, message: sheet.table.rows.length ? '' : 'Nothing in this report', notices: sheet.warnings };
 }
 
 type Prepared = { view: View; types: ColType[]; detected: ColType[]; values: number[][]; shown: number[]; symbolCol: number };
@@ -690,7 +694,7 @@ function initEvents(): void {
   });
   el.csvBtn.addEventListener('click', exportCsv);
   el.allBtn.addEventListener('click', downloadAll);
-  el.txtBtn.addEventListener('click', () => { if (prepared) download(`${safeName(prepared.view.exportName)}.txt`, shownTickers(prepared).map(t => `${t}\n`).join(''), 'text/plain'); });
+  el.txtBtn.addEventListener('click', () => { if (prepared) download(`${safeName(prepared.view.txtName ?? prepared.view.exportName)}.txt`, shownTickers(prepared).map(t => `${t}\n`).join(''), 'text/plain'); });
 
   let dragDepth = 0;
   window.addEventListener('dragenter', (e: DragEvent) => { if (e.dataTransfer?.types.includes('Files')) { dragDepth += 1; el.drop.hidden = false; } });
