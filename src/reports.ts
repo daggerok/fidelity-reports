@@ -214,6 +214,31 @@ export function requireColumns(report: keyof typeof REQUIRED_COLUMNS, schema: Fi
   if (missing.length) throw new Error(`Fidelity header is missing required column(s) for ${report}: ${missing.join(', ')}.`);
 }
 
+/**
+ * Columns the watchlist works without, at a cost: [header name, resolved index, what the lists lose without it]
+ * (BuildFidelityAccountsWatchlistScioApp.optionalColumns). Without Market cap every ticker has market cap 0,
+ * without Sector every ticker counts as an ETF.
+ */
+const WATCHLIST_OPTIONAL_COLUMNS = (s: FidelitySchema): [string, number, string][] => [
+  ['Market cap', s.marketCap, 'no ticker has a market cap, so the lists are not sorted by market cap'],
+  ['Sector', s.sector, 'every ticker counts as an ETF'],
+];
+
+/** The warning for a file whose header lacks Market cap or Sector (same text as the scio WARN line); null when both are there. */
+export function watchlistWarning(fileName: string, headerRow: string): string | null {
+  const missing = WATCHLIST_OPTIONAL_COLUMNS(schemaFromHeader(headerRow)).filter(([, index]) => index < 0);
+  if (!missing.length) return null;
+  return `Fidelity header of ${fileName} is missing optional column(s) for Watchlist: ${missing.map(([name]) => name).join(', ')}. `
+    + `The watchlists are still built, but ${missing.map(([, , loss]) => loss).join(' and ')}.`;
+}
+
+/** One warning per file of the accounts (an all-accounts file holds several accounts with one header), in account order. */
+export function watchlistWarnings(accounts: Account[]): string[] {
+  const byFile = new Map<string, string | null>();
+  for (const a of accounts) if (!byFile.has(a.fileName)) byFile.set(a.fileName, watchlistWarning(a.fileName, a.header));
+  return Array.from(byFile.values()).filter((w): w is string => w !== null);
+}
+
 /** Stable sort that keeps input order for ties (Beam gives no tie order, the comparison treats ties as a set). */
 function sortBy<T>(items: T[], compare: (a: T, b: T) => number): T[] {
   return items.map((item, i) => ({ item, i })).sort((a, b) => compare(a.item, b.item) || a.i - b.i).map(x => x.item);
@@ -506,8 +531,15 @@ export function watchlistName(accountName: string): string {
   return accountName.replace(/\s+ROTH IRA$/i, ' Roth');
 }
 
-/** One tab of a report: a whole-portfolio watchlist or one account (id = the account id). */
-export type ReportSheet = { id: string; title: string; table: ReportTable; error?: string };
+/**
+ * One tab of a report: a whole-portfolio watchlist or one account (id = the account id).
+ * error: the report failed (no table); warnings: the report was built, but its input lacks something (watchlistWarnings).
+ */
+export type ReportSheet = { id: string; title: string; table: ReportTable; error?: string; warnings?: string[] };
+
+function warned(sheet: ReportSheet, warnings: string[]): ReportSheet {
+  return warnings.length ? { ...sheet, warnings } : sheet;
+}
 
 function guarded(id: string, title: string, run: () => ReportTable): ReportSheet {
   try {
@@ -519,8 +551,9 @@ function guarded(id: string, title: string, run: () => ReportTable): ReportSheet
 
 export function buildReport(kind: ReportKind, accounts: Account[], runDate: string = todayIso()): ReportSheet[] {
   if (kind === 'watchlist') {
-    const all = COMBINED_WATCHLISTS.map(w => guarded(w.id, w.title, () => watchlistReport(accounts, w.securities)));
-    return all.concat(accounts.map(a => guarded(a.id, watchlistName(a.name), () => watchlistReport([a], ['Stock', 'ETF']))));
+    const warnings = watchlistWarnings(accounts);
+    const all = COMBINED_WATCHLISTS.map(w => warned(guarded(w.id, w.title, () => watchlistReport(accounts, w.securities)), warnings));
+    return all.concat(accounts.map(a => warned(guarded(a.id, watchlistName(a.name), () => watchlistReport([a], ['Stock', 'ETF'])), watchlistWarnings([a]))));
   }
   const run = kind === 'investments' ? investmentsReport : kind === 'dividends' ? dividendsReport : (a: Account) => dripsReport(a, runDate);
   return accounts.map(a => guarded(a.id, a.name, () => run(a)));

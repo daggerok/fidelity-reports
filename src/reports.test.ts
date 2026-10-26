@@ -6,6 +6,7 @@ import {
   readFidelityAccounts, splitRow, schemaFromHeader, parseMoney, money, formatMarketCap, parseMarketCap,
   activeColumnLabels, watchlistReport, investmentsReport, dividendsReport, dripsReport, parseFidelityDate,
   buildReport, requireColumns, reportText, readTable, watchlistName, isWatchlistBlacklisted, REPORT_KINDS,
+  watchlistWarning, watchlistWarnings,
 } from './reports';
 
 const HEADER = '﻿Account number,Account name,Symbol,Description,Cost basis total,Current value,Last price,Dist. rate,Payment frequency,Market cap,Ex-date,Pay date,Sector';
@@ -178,5 +179,65 @@ describe('required columns', () => {
     expect([schemaFromHeader(optionalHeader).marketCap, schemaFromHeader(optionalHeader).sector]).toEqual([-1, -1]);
     // no market cap: every ticker ties, the order of ties is not defined (Beam), so compare the set
     expect(watchlistReport([optional], ['Stock', 'ETF']).rows.map(r => r[0]).sort()).toEqual(['BRK.B', 'BRKB', 'ITW', 'NVDA', 'SCHD']);
+  });
+});
+
+describe('watchlist warnings (Market cap and Sector are optional)', () => {
+  // SAMPLE under another file name with Market cap and/or Sector renamed (Sector is the last header name)
+  const fileWithout = (fileName: string, columns: ('Market cap' | 'Sector')[]) => {
+    let header = HEADER;
+    if (columns.includes('Market cap')) header = header.replace(',Market cap,', ',Mkt cap,');
+    if (columns.includes('Sector')) header = header.replace(/,Sector$/, ',Area');
+    return (readFidelityAccounts(fileName, SAMPLE.replace(HEADER, header)) ?? [])[0];
+  };
+  const NO_CAP = 'Fidelity header of 1-no-cap.csv is missing optional column(s) for Watchlist: Market cap. '
+    + 'The watchlists are still built, but no ticker has a market cap, so the lists are not sorted by market cap.';
+  const NO_SECTOR = 'Fidelity header of 2-no-sector.csv is missing optional column(s) for Watchlist: Sector. '
+    + 'The watchlists are still built, but every ticker counts as an ETF.';
+  const NO_BOTH = 'Fidelity header of 3-no-both.csv is missing optional column(s) for Watchlist: Market cap, Sector. '
+    + 'The watchlists are still built, but no ticker has a market cap, so the lists are not sorted by market cap and every ticker counts as an ETF.';
+  const sheetsOf = (accounts: typeof account[]) => buildReport('watchlist', accounts).map(s => ({ title: s.title, error: s.error, warnings: s.warnings, rows: s.table.rows.length }));
+
+  it('no warning for the sample and the real 38, 39 and 41 column headers', () => {
+    const dir = 'data';
+    const files = readdirSync(dir).filter(f => f.endsWith('.csv'));
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) expect(watchlistWarning(f, readFileSync(join(dir, f), 'utf8').split(/\r?\n/)[0])).toBeNull();
+    expect(watchlistWarning('positions.csv', HEADER)).toBeNull();
+    const accounts = files.flatMap(f => readFidelityAccounts(f, readFileSync(join(dir, f), 'utf8')) ?? []);
+    expect(buildReport('watchlist', accounts).filter(s => s.warnings || s.error)).toEqual([]);
+  });
+
+  it('a file without Market cap: the warning names the file and the column, the lists are still built', () => {
+    expect(sheetsOf([fileWithout('1-no-cap.csv', ['Market cap'])])).toEqual([
+      { title: 'All', error: undefined, warnings: [NO_CAP], rows: 5 },
+      { title: 'All ETFs', error: undefined, warnings: [NO_CAP], rows: 1 },
+      { title: 'All Stocks', error: undefined, warnings: [NO_CAP], rows: 4 },
+      { title: 'Main', error: undefined, warnings: [NO_CAP], rows: 5 },
+    ]);
+  });
+
+  it('a file without Sector or without both: one warning naming every missing column; every ticker is an ETF', () => {
+    expect(sheetsOf([fileWithout('2-no-sector.csv', ['Sector'])]).map(s => [s.title, s.warnings, s.rows])).toEqual([
+      ['All', [NO_SECTOR], 5], ['All ETFs', [NO_SECTOR], 5], ['All Stocks', [NO_SECTOR], 0], ['Main', [NO_SECTOR], 5],
+    ]);
+    expect(sheetsOf([fileWithout('3-no-both.csv', ['Market cap', 'Sector'])]).map(s => [s.title, s.warnings, s.rows])).toEqual([
+      ['All', [NO_BOTH], 5], ['All ETFs', [NO_BOTH], 5], ['All Stocks', [NO_BOTH], 0], ['Main', [NO_BOTH], 5],
+    ]);
+  });
+
+  it('the combined lists carry the warning of every such file once, the per-account lists only their own', () => {
+    const roth = (readFidelityAccounts('2-no-sector.csv', SAMPLE.replace(HEADER, HEADER.replace(/,Sector$/, ',Area')).replace(/^Z1,Main,/gm, 'Z2,Max ROTH IRA,').replace(/^Z1,/gm, 'Z2,')) ?? [])[0];
+    const noCap = fileWithout('1-no-cap.csv', ['Market cap']);
+    const sheets = sheetsOf([account, noCap, roth]);
+    expect(sheets.map(s => [s.title, s.warnings])).toEqual([
+      ['All', [NO_CAP, NO_SECTOR]], ['All ETFs', [NO_CAP, NO_SECTOR]], ['All Stocks', [NO_CAP, NO_SECTOR]],
+      ['Main', undefined], ['Main', [NO_CAP]], ['Max Roth', [NO_SECTOR]],
+    ]);
+    // an all-accounts file holds several accounts with one header: one warning, not one per account
+    const all = readFidelityAccounts('1-no-cap.csv', SAMPLE.replace(HEADER, HEADER.replace(',Market cap,', ',Mkt cap,')) + '\r\nZ9,Other,KO,DESC,$1,$1,$1,1%,Quarterly,--,--,--,Consumer staples,') ?? [];
+    expect(all.length).toBe(2);
+    expect(watchlistWarnings(all)).toEqual([NO_CAP]);
+    expect(buildReport('watchlist', all).map(s => s.warnings)).toEqual([[NO_CAP], [NO_CAP], [NO_CAP], [NO_CAP], [NO_CAP]]);
   });
 });

@@ -233,17 +233,24 @@ function failed(kind: ReportKind, sheet: string): boolean {
   return !!state.reports[kind].error || state.reports[kind].sheets.some(s => s.id === sheet && !!s.error);
 }
 
+/** The report was built for the sheet, but its input lacks an optional column (watchlist without Market cap or Sector): a ⚠ too, the table shows a notice. */
+function warned(kind: ReportKind, sheet: string): boolean {
+  return state.reports[kind].sheets.some(s => s.id === sheet && !!s.warnings?.length);
+}
+
+const flagged = (kind: ReportKind, sheet: string) => failed(kind, sheet) || warned(kind, sheet);
+
 function accountTabs(): Tab[] {
-  return state.accounts.map((a, i) => ({ id: a.id, label: String(i + 1), sub: a.name, title: `${a.name} (${a.number}) from ${a.fileName}`, warn: REPORT_KINDS.some(k => failed(k.kind, a.id)) }));
+  return state.accounts.map((a, i) => ({ id: a.id, label: String(i + 1), sub: a.name, title: `${a.name} (${a.number}) from ${a.fileName}`, warn: REPORT_KINDS.some(k => flagged(k.kind, a.id)) }));
 }
 
 /** The sheet ids of a report in tab order: watchlist = All, All ETFs, All Stocks, then the accounts by name (like scio target/watchlist). */
 function sheetTabs(kind: ReportKind): Tab[] {
-  if (kind !== 'watchlist') return accountTabs().map(t => ({ ...t, warn: failed(kind, t.id) }));
+  if (kind !== 'watchlist') return accountTabs().map(t => ({ ...t, warn: flagged(kind, t.id) }));
   const sheets = state.reports.watchlist.sheets;
   const name = (id: string) => sheets.find(s => s.id === id)?.title ?? state.accounts.find(a => a.id === id)?.name ?? id;
-  const combined = COMBINED_WATCHLISTS.map(w => ({ id: w.id, label: w.title, title: `${w.title}: every account` }));
-  const accounts = state.accounts.map(a => ({ id: a.id, label: name(a.id), title: `${a.name} (${a.number})` })).sort((x, y) => collator.compare(x.label, y.label));
+  const combined = COMBINED_WATCHLISTS.map(w => ({ id: w.id, label: w.title, title: `${w.title}: every account`, warn: flagged(kind, w.id) }));
+  const accounts = state.accounts.map(a => ({ id: a.id, label: name(a.id), title: `${a.name} (${a.number})`, warn: flagged(kind, a.id) })).sort((x, y) => collator.compare(x.label, y.label));
   return [...combined, ...accounts];
 }
 
@@ -289,7 +296,7 @@ function renderTabs(): void {
   }
   el.sub2.hidden = false;
   normalizeSelection();
-  const kindTabs = (): Tab[] => REPORT_KINDS.map(k => ({ id: k.kind, label: k.label, busy: state.reports[k.kind].status === 'running', warn: failed(k.kind, state.sheet) }));
+  const kindTabs = (): Tab[] => REPORT_KINDS.map(k => ({ id: k.kind, label: k.label, busy: state.reports[k.kind].status === 'running', warn: flagged(k.kind, state.sheet) }));
   const pickKind = (id: string) => {
     state.kind = id as ReportKind;
     if (state.kind !== 'watchlist' && isCombined(state.sheet)) state.sheet = state.accounts[0]?.id ?? '';
@@ -298,9 +305,9 @@ function renderTabs(): void {
   const pickSheet = (id: string) => { state.sheet = id; if (isCombined(id)) state.kind = 'watchlist'; persistView(); render(); };
   if (state.groupBy === 'file') {
     // level 1: 1..N and All (the watchlists over every account), level 2: the 4 reports (or the 3 combined watchlists)
-    const level1 = [...accountTabs(), { id: COMBINED, label: 'All', sub: 'accounts', title: 'Watchlists over every account: All, All ETFs, All Stocks', busy: state.reports.watchlist.status === 'running' }];
+    const level1 = [...accountTabs(), { id: COMBINED, label: 'All', sub: 'accounts', title: 'Watchlists over every account: All, All ETFs, All Stocks', busy: state.reports.watchlist.status === 'running', warn: COMBINED_WATCHLISTS.some(w => flagged('watchlist', w.id)) }];
     pills(el.sub1, level1, isCombined(state.sheet) ? COMBINED : state.sheet, id => pickSheet(id === COMBINED ? (isCombined(state.sheet) ? state.sheet : COMBINED_WATCHLISTS[0].id) : id));
-    if (isCombined(state.sheet)) pills(el.sub2, COMBINED_WATCHLISTS.map(w => ({ id: w.id, label: w.title, busy: state.reports.watchlist.status === 'running' })), state.sheet, pickSheet);
+    if (isCombined(state.sheet)) pills(el.sub2, COMBINED_WATCHLISTS.map(w => ({ id: w.id, label: w.title, busy: state.reports.watchlist.status === 'running', warn: flagged('watchlist', w.id) })), state.sheet, pickSheet);
     else pills(el.sub2, kindTabs(), state.kind, pickKind);
   } else {
     // level 1: the 4 reports, level 2: 1..N (watchlist: All, All ETFs, All Stocks and the accounts by name)
@@ -311,7 +318,8 @@ function renderTabs(): void {
 
 // ---- 5. Rendering: the table ----------------------------------------------------------------------
 
-type View = { scope: string; table: ReportTable; exportName: string; exportKind: ReportKind | 'input'; message: string };
+/** message: shown instead of the rows; notices: warnings shown above the rows of a report that was built (ReportSheet.warnings). */
+type View = { scope: string; table: ReportTable; exportName: string; exportKind: ReportKind | 'input'; message: string; notices?: string[] };
 
 function currentView(): View {
   if (state.mainTab === 'input') {
@@ -328,7 +336,7 @@ function currentView(): View {
   const folder = REPORT_KINDS.find(k => k.kind === state.kind)?.folder ?? state.kind;
   const index = state.accounts.findIndex(a => a.id === sheet.id);
   const name = state.kind === 'watchlist' ? sheet.title : String(index + 1); // the scio target file name
-  return { scope: state.kind, table: sheet.table, exportName: `${folder}-${name}`, exportKind: state.kind, message: sheet.table.rows.length ? '' : 'Nothing in this report' };
+  return { scope: state.kind, table: sheet.table, exportName: `${folder}-${name}`, exportKind: state.kind, message: sheet.table.rows.length ? '' : 'Nothing in this report', notices: sheet.warnings };
 }
 
 type Prepared = { view: View; types: ColType[]; detected: ColType[]; values: number[][]; shown: number[]; symbolCol: number };
@@ -407,12 +415,18 @@ function headHtml(p: Prepared): string {
   return html;
 }
 
+/** Warnings of a built report as rows above the table rows, in the style of the message row (a single cell, so not a data row). */
+function noticesHtml(p: Prepared): string {
+  return (p.view.notices ?? []).map(n => `<tr class="notice-row"><td colspan="99" role="status" class="py-2.5 px-4 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20">⚠ ${escapeHtml(n)}</td></tr>`).join('');
+}
+
 function bodyHtml(p: Prepared): string {
   const { rows } = p.view.table;
-  if (p.view.message) return `<tr><td colspan="99" class="py-12 text-center text-slate-400 dark:text-slate-500">${escapeHtml(p.view.message)}</td></tr>`;
-  if (!p.shown.length) return `<tr><td colspan="99" class="py-12 text-center text-slate-400 dark:text-slate-500">No rows match the filters</td></tr>`;
+  const notices = noticesHtml(p);
+  if (p.view.message) return `${notices}<tr><td colspan="99" class="py-12 text-center text-slate-400 dark:text-slate-500">${escapeHtml(p.view.message)}</td></tr>`;
+  if (!p.shown.length) return `${notices}<tr><td colspan="99" class="py-12 text-center text-slate-400 dark:text-slate-500">No rows match the filters</td></tr>`;
   const cols = visibleColumns(p);
-  return p.shown.map((r, n) => `<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"><td class="py-2 px-4 text-center text-xs text-slate-400 dark:text-slate-500">${n + 1}</td>${cols.map(i => {
+  return notices + p.shown.map((r, n) => `<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"><td class="py-2 px-4 text-center text-xs text-slate-400 dark:text-slate-500">${n + 1}</td>${cols.map(i => {
     const numeric = p.types[i] !== 'string';
     return `<td class="py-2 px-4${numeric ? ' text-right tabular-nums' : ''}${i === p.symbolCol ? ' font-semibold text-slate-900 dark:text-white' : ' text-slate-600 dark:text-slate-300'}">${escapeHtml(rows[r][i] ?? '')}</td>`;
   }).join('')}</tr>`).join('');
