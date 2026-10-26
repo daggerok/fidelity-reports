@@ -130,16 +130,16 @@ describe('required columns', () => {
     const header = Object.entries(names).reduce((h, [from, to]) => h.replace(`,${from},`, `,${to},`), HEADER);
     return (readFidelityAccounts('positions.csv', SAMPLE.replace(HEADER, header)) ?? [])[0];
   };
-  const errorOf = (kind: 'investments' | 'dividends' | 'drips', acct: typeof account) => buildReport(kind, [acct], '2026-10-02')[0].error;
+  const errorOf = (kind: 'investments' | 'dividends' | 'drips' | 'watchlist', acct: typeof account) => buildReport(kind, [acct], '2026-10-02')[0].error;
 
   it('the sample and the real 38, 39 and 41 column headers have every required column', () => {
     const dir = 'data'; // bun test runs from the repo root
     const headers = readdirSync(dir).filter(f => f.endsWith('.csv')).map(f => readFileSync(join(dir, f), 'utf8').split(/\r?\n/)[0]);
     expect(new Set(headers.map(h => schemaFromHeader(h).commas + 1))).toEqual(new Set([38, 39, 41]));
     for (const header of [HEADER, ...headers]) {
-      for (const report of ['Investments', 'Dividends', 'DRIPs'] as const) expect(() => requireColumns(report, schemaFromHeader(header))).not.toThrow();
+      for (const report of ['Investments', 'Dividends', 'DRIPs', 'Watchlist'] as const) expect(() => requireColumns(report, schemaFromHeader(header))).not.toThrow();
     }
-    for (const kind of ['investments', 'dividends', 'drips'] as const) expect(errorOf(kind, account)).toBeUndefined();
+    for (const kind of ['investments', 'dividends', 'drips', 'watchlist'] as const) expect(errorOf(kind, account)).toBeUndefined();
   });
 
   it('a missing Last price fails investments with its name instead of an empty report', () => {
@@ -161,5 +161,22 @@ describe('required columns', () => {
     expect(noSymbol.lines.length).toBe(6);
     expect(errorOf('drips', noSymbol)).toBe('Fidelity header is missing required column(s) for DRIPs: Symbol.');
     expect(errorOf('investments', noSymbol)).toContain('Investments: Symbol.');
+  });
+
+  it('a missing Symbol fails the watchlist instead of an empty list; Market cap and Sector are optional', () => {
+    const noSymbol = renamed({ Symbol: 'Ticker' });
+    const message = 'Fidelity header is missing required column(s) for Watchlist: Symbol.';
+    expect(() => watchlistReport([noSymbol], ['Stock', 'ETF'])).toThrow(message);
+    // the combined lists fail when any account lacks Symbol, the per-account list only for that account
+    const sheets = buildReport('watchlist', [account, noSymbol]);
+    expect(sheets.map(s => [s.title, s.error])).toEqual([
+      ['All', message], ['All ETFs', message], ['All Stocks', message], ['Main', undefined], ['Main', message],
+    ]);
+    // Sector is the last header name, so renamed() (which swaps ,name,) cannot reach it
+    const optionalHeader = HEADER.replace(',Market cap,', ',Mkt cap,').replace(/,Sector$/, ',Area');
+    const [optional] = readFidelityAccounts('positions.csv', SAMPLE.replace(HEADER, optionalHeader)) ?? [];
+    expect([schemaFromHeader(optionalHeader).marketCap, schemaFromHeader(optionalHeader).sector]).toEqual([-1, -1]);
+    // no market cap: every ticker ties, the order of ties is not defined (Beam), so compare the set
+    expect(watchlistReport([optional], ['Stock', 'ETF']).rows.map(r => r[0]).sort()).toEqual(['BRK.B', 'BRKB', 'ITW', 'NVDA', 'SCHD']);
   });
 });
