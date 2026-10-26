@@ -196,11 +196,13 @@ function parsedRows(account: Account, report: string): { schema: FidelitySchema;
 }
 
 /** Columns each report cannot work without: [header name, resolved index] (BuildFidelity*ScioApp.requiredColumns). */
-const REQUIRED_COLUMNS: Record<'Investments' | 'Dividends' | 'DRIPs', (s: FidelitySchema) => [string, number][]> = {
+const REQUIRED_COLUMNS: Record<'Investments' | 'Dividends' | 'DRIPs' | 'Watchlist', (s: FidelitySchema) => [string, number][]> = {
   Investments: s => [['Symbol', s.symbol], ['Cost basis total', s.costBasisTotal], ['Current value', s.currentValue], ['Last price', s.lastPrice], ['Market cap', s.marketCap]],
   Dividends: s => [['Symbol', s.symbol], ['Dist. rate (or Dist. yield)', s.distYield], ['Payment frequency', s.paymentFrequency], ['Last price', s.lastPrice], ['Cost basis total', s.costBasisTotal], ['Current value', s.currentValue]],
   // Pay date is optional
   DRIPs: s => [['Symbol', s.symbol], ['Current value', s.currentValue], ['Last price', s.lastPrice], ['Dist. rate (or Dist. yield)', s.distYield], ['Payment frequency', s.paymentFrequency], ['Ex-date', s.exDate]],
+  // Market cap and Sector are optional (no market cap, counted as an ETF)
+  Watchlist: s => [['Symbol', s.symbol]],
 };
 
 /**
@@ -267,8 +269,9 @@ export function watchlistReport(accounts: Account[], securities: Security[]): Re
   const seen = new Map<string, { cap: number; capText: string }>();
   for (const account of accounts) {
     const { schema: idx, rows } = parsedRows(account, 'Watchlist');
+    requireColumns('Watchlist', idx);
     for (const parts of rows) {
-      if (idx.symbol < 0 || parts.length <= idx.symbol) continue;
+      if (parts.length <= idx.symbol) continue;
       if (parts.length < idx.commas && parts.length <= Math.max(idx.marketCap, idx.sector)) continue;
       const sector = idx.sector >= 0 && parts.length > idx.sector ? parts[idx.sector] : '--';
       if (!securities.includes(securityOf(sector))) continue;
