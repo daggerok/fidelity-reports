@@ -4,9 +4,9 @@ Fidelity reports in the browser: dividends, DRIPs, investments and watchlists fr
 
 ## Using the app
 
-- At start the app loads the files of the repo `data/` folder (copied into `dist/data` by the build) and builds every report
+- At start the app loads the files kept in this browser from the last visit and builds every report; while nothing is kept, the files of the repo `data/` folder (copied into `dist/data` by the build) are the default
 - **Input** tab: every input file as a table, one sub tab per file. Preamble, blank lines and the quoted disclaimers at the end are ignored; an all-accounts export is split by account
-- **Load files**: the picked CSV files replace the shown ones (the repo data or files loaded before). **Add files** adds to the loaded files (a file with the same name is replaced). The **✕** on a file tab of Input removes that file. A drop on the page loads over the repo data and adds over loaded files. **Repo data** goes back to the `data/` files, and so does a page reload. Files loaded before the repo data has arrived stay (the late repo data only fills the Repo data button); a file that cannot be read is named in the status line and the others still load
+- **Load files**: the picked CSV files replace the shown ones (the repo data or files loaded before). **Add files** adds to the loaded files (a file with the same name is replaced). The **✕** on a file tab of Input removes that file. A drop on the page loads over the repo data and adds over loaded files. Loaded files (also a list trimmed with ✕) are kept in this browser, in IndexedDB, so a page reload and the next visit of the site show them again. **Repo data** goes back to the `data/` files and forgets the kept ones. Files loaded before the repo data has arrived stay (the late repo data only fills the Repo data button); a file that cannot be read is named in the status line and the others still load
 - **Output** tab: the reports, built in a web worker; a spinner sits on a report tab until its report is ready
   - **Output per: file**: `1`, `2`, ... (one per account, in file name order like scio `Commons.captureInputs`), each with `Dividends`, `DRIPs`, `Investments`, `Watchlist`, plus `All` with the three watchlists over every account (`All`, `All ETFs`, `All Stocks`)
   - **Output per: report**: `Dividends`, `DRIPs`, `Investments`, `Watchlist`, each with `1`, `2`, ...; `Watchlist` has `All`, `All ETFs`, `All Stocks` and one list per account by its scio name (`Max ROTH IRA` -> `Max Roth`)
@@ -18,14 +18,14 @@ Fidelity reports in the browser: dividends, DRIPs, investments and watchlists fr
 - A file whose header lacks a column a report needs (renamed by Fidelity, say) does not give an empty report: that report shows `Fidelity header is missing required column(s) for <report>: ...` and its tabs get a ⚠, like the scio job that fails with the same message. Investments needs Symbol, Cost basis total, Current value, Last price, Market cap; Dividends Symbol, Dist. rate (or Dist. yield), Payment frequency, Last price, Cost basis total, Current value; DRIPs Symbol, Current value, Last price, Dist. rate (or Dist. yield), Payment frequency, Ex-date; Watchlist Symbol (Market cap and Sector are optional: without them a ticker has no market cap and counts as an ETF). A file without Symbol also fails `All`, `All ETFs` and `All Stocks`, like the combined scio job
 - Market cap and Sector stay optional for the watchlist, but a file without either is not silent: its watchlist tabs (its own list and `All`, `All ETFs`, `All Stocks`) get a ⚠ and a notice above the rows, `Fidelity header of <file> is missing optional column(s) for Watchlist: Market cap, Sector. ...`, while the lists are built as before. The scio job logs the same text as a WARN line
 - DRIPs show the ex-dividend and payment dates only when they are after **Dates after** (today by default, like the Scala job on the day it runs)
-- Nothing leaves the browser; only the view and the table settings are kept in localStorage
+- Nothing leaves the browser: the loaded files are kept in IndexedDB of this browser, the view and the table settings in localStorage; a browser that blocks storage (private mode) still shows the files, only the next visit starts from `data/` again
 
 ## Account numbers (before anything goes public)
 
 A full account number never gets into a commit, the repo or the public site:
 
 - `data/` keeps only the last 4 characters: `AB1234567` -> `*****4567` (same length). `bun run sanitize` masks `data/*.csv` in place (or `bun scripts/sanitize-data.ts a.csv b.csv`); only the Account number column changes, the reports stay the same, a second run changes nothing
-- Files you load yourself (Load files, drop) stay in your browser and are shown as they are, with your real account numbers: nothing is uploaded, nothing is committed
+- Files you load yourself (Load files, drop) stay in your browser (IndexedDB, until Repo data or cleared site data) and are shown as they are, with your real account numbers: nothing is uploaded, nothing is committed
 - `bun run check-data`: exit 1 while a file in `data/` has a full number, or ANY file of the repo (tracked or new) holds something shaped like one (a letter and 8 digits, or 9 digits)
 - `bun run build` runs check-data first and `check-dist` last (the same scan over `dist/`): the build fails instead of producing a site with a number
 - `bun run check-history`: exit 1 while any commit holds one
