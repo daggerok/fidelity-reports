@@ -4,10 +4,12 @@
 // Fidelity Reports: Fidelity Portfolio_Positions CSV exports -> dividends, DRIPs, investments and watchlists,
 // the reports of scio-examples (sbt runMain io.github.daggerok.Main), built in the browser.
 //
-// - Input tab: every input file as a table. At start the files of the repo data/ folder are loaded
-//   (data/index.json lists them, `bun run build` copies data/ into dist/). Load files replaces the shown
-//   files with the picked ones, Add files adds to them (same name = replaced), the ✕ on a file tab removes
-//   that file; a drop on the page loads (over the repo data) or adds (over loaded files). Repo data goes back
+// - Input tab: every input file as a table. At start the files kept in this browser (IndexedDB) are loaded;
+//   when none are kept, the files of the repo data/ folder are the default (data/index.json lists them,
+//   `bun run build` copies data/ into dist/). Load files replaces the shown files with the picked ones,
+//   Add files adds to them (same name = replaced), the ✕ on a file tab removes that file; a drop on the
+//   page loads (over the repo data) or adds (over loaded files). Loaded files are kept in this browser for
+//   the next visit (nothing is uploaded); Repo data goes back to data/ and forgets them
 // - Output tab: the reports, built in a web worker right after the input changes; a spinner sits on
 //   each report tab until it is ready. "Output per: file" shows 1..N (one per account) and then the
 //   4 reports, plus "All" for the 3 watchlists over every account; "Output per: report" shows the
@@ -29,7 +31,7 @@ import {
 } from './filter-engine';
 import { createDropdown, type Dropdown } from './dropdown';
 import { escapeHtml } from './html';
-import { readPicked, repoDataTakesOver } from './input';
+import { filesToKeep, keptFiles, readPicked, repoDataTakesOver, type StoredFile } from './input';
 import { strToU8, zipSync } from 'fflate';
 
 // ---- 1. DOM, state, storage -----------------------------------------------------------------------
@@ -125,6 +127,52 @@ function setStatus(text: string): void {
   el.status.textContent = text;
 }
 
+// The loaded files live in IndexedDB (one record), not localStorage: a few exports are hundreds of KB and every app on
+// the Pages origin shares the small localStorage quota. Like localStorage above, a store that is blocked (private mode,
+// cleared site data) never breaks the app: a read then means "nothing kept", a write is reported in the status line.
+const DB_NAME = PREFIX;
+const DB_STORE = 'input';
+const DB_FILES_KEY = 'files';
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error('IndexedDB is blocked'));
+    req.onblocked = () => reject(new Error('IndexedDB is blocked'));
+  });
+}
+
+function settle<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error('IndexedDB request failed'));
+  });
+}
+
+/** The files kept by the last visit, or null when nothing is kept or the store cannot be read. */
+async function readKeptFiles(): Promise<StoredFile[] | null> {
+  try {
+    const db = await openDb();
+    try { return keptFiles(await settle(db.transaction(DB_STORE).objectStore(DB_STORE).get(DB_FILES_KEY))); } finally { db.close(); }
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps the files for the next visit (null = forget them); throws when the store cannot be written. */
+async function writeKeptFiles(files: StoredFile[] | null): Promise<void> {
+  const db = await openDb();
+  try {
+    const store = db.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE);
+    if (files) await settle(store.put(files, DB_FILES_KEY));
+    else await settle(store.delete(DB_FILES_KEY));
+  } finally {
+    db.close();
+  }
+}
+
 function setBusy(on: boolean, label = ''): void {
   if (label) el.busyLabel.textContent = label;
   el.busy.hidden = !on;
@@ -144,7 +192,10 @@ function toInput(name: string, text: string): InputFile {
 let worker: Worker | null = null;
 let jobId = 0;
 
-/** New input: rebuild every report in the worker; each output tab spins until its report arrives. */
+/**
+ * New input: rebuild every report in the worker; each output tab spins until its report arrives. Loaded files are
+ * kept in this browser for the next visit, going back to the repo data forgets them.
+ */
 function setInput(files: InputFile[], source: 'repo' | 'loaded'): void {
   state.files = [...files].sort((a, b) => collator.compare(a.name, b.name));
   state.accounts = state.files.flatMap(f => f.accounts ?? []);
@@ -152,6 +203,7 @@ function setInput(files: InputFile[], source: 'repo' | 'loaded'): void {
   if (!state.files.some(f => f.name === state.inputFile)) state.inputFile = state.files[0]?.name ?? '';
   runReports();
   render();
+  writeKeptFiles(filesToKeep(state.files, source)).catch(e => setStatus(`The files are shown, but this browser could not keep them for the next visit (${e instanceof Error ? e.message : String(e)})`));
 }
 
 function runReports(): void {
@@ -174,8 +226,9 @@ function runReports(): void {
   worker.postMessage({ jobId: id, accounts: state.accounts, runDate: state.runDate });
 }
 
+/** The repo data/ files: the input when nothing else is shown, else only the files behind the Repo data button. */
 async function loadRepoData(): Promise<void> {
-  setBusy(true, 'Loading the repo data…');
+  if (repoDataTakesOver(state.source)) setBusy(true, 'Loading the repo data…');
   try {
     const index = await (await fetch('data/index.json', { cache: 'no-cache' })).json();
     const names: string[] = Array.isArray(index.files) ? index.files.filter((n: unknown) => typeof n === 'string') : [];
@@ -215,7 +268,7 @@ async function loadFiles(list: FileList | File[], mode: 'replace' | 'add'): Prom
   }
 }
 
-/** The ✕ on an input file tab: the reports are rebuilt without it; Repo data brings the repo files back. */
+/** The ✕ on an input file tab: the reports are rebuilt without it (and the trimmed list is kept); Repo data brings the repo files back. */
 function removeFile(name: string): void {
   setInput(state.files.filter(f => f.name !== name), 'loaded');
   setStatus(`${name} removed`);
@@ -482,7 +535,7 @@ function renderToolbar(): void {
   el.allBtn.disabled = !state.accounts.length || REPORT_KINDS.some(k => state.reports[k.kind].status !== 'done');
   const accounts = state.accounts.length;
   el.fileCount.textContent = `${state.files.length} file${state.files.length === 1 ? '' : 's'}`;
-  el.fileCount.title = `${accounts} account${accounts === 1 ? '' : 's'}; ${state.source === 'repo' ? 'the repo data/ folder' : 'loaded files'}`;
+  el.fileCount.title = `${accounts} account${accounts === 1 ? '' : 's'}; ${state.source === 'repo' ? 'the repo data/ folder (the default while nothing is loaded)' : 'loaded files, kept in this browser for the next visit'}`;
   el.subtitle.textContent = `${state.source === 'repo' ? 'Repo data' : 'Loaded files'}: ${accounts} accounts${anyRunning() ? ', building reports…' : ''}${p && !p.view.message ? ` · ${shown === total ? `${total} rows` : `${shown} of ${total} rows`}` : ''}`;
   if (columnsDropdown) columnsDropdown.refresh();
 }
@@ -686,7 +739,7 @@ function initEvents(): void {
   el.loadBtn.addEventListener('click', () => { pickMode = 'replace'; el.fileInput.click(); });
   el.addBtn.addEventListener('click', () => { pickMode = 'add'; el.fileInput.click(); });
   el.fileInput.addEventListener('change', () => { if (el.fileInput.files?.length) loadFiles(el.fileInput.files, pickMode); el.fileInput.value = ''; pickMode = 'replace'; });
-  el.repoBtn.addEventListener('click', () => { setInput(state.repoFiles, 'repo'); setStatus('Back to the repo data'); });
+  el.repoBtn.addEventListener('click', () => { setInput(state.repoFiles, 'repo'); setStatus('Back to the repo data; the loaded files are no longer kept'); });
   el.copyBtn.addEventListener('click', () => {
     if (!prepared) return;
     const list = shownTickers(prepared);
@@ -710,6 +763,17 @@ function initEvents(): void {
   new ResizeObserver(fitTableHeight).observe(document.getElementById('top-panels') ?? document.body);
 }
 
-initEvents();
-render();
-loadRepoData();
+/** Start: the files kept by the last visit, else the repo data/ (which also stays behind the Repo data button). */
+async function start(): Promise<void> {
+  initEvents();
+  render();
+  const kept = await readKeptFiles();
+  // files dropped on the page while the store was being read win over the kept ones, like over late repo data
+  if (kept && repoDataTakesOver(state.source)) {
+    setInput(kept.map(f => toInput(f.name, f.text)), 'loaded');
+    setStatus(`${kept.length} file${kept.length === 1 ? '' : 's'} kept from the last visit`);
+  }
+  await loadRepoData();
+}
+
+start();
